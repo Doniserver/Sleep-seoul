@@ -133,3 +133,11 @@ body[data-route="map"] .foot { padding-top: 8px; }
   .ctable { font-size: 13.5px; }
   .ctable th, .ctable td { padding: 7px 5px; }
 }
+
+/* 배경 지도 전환 */
+.ctrl .basemap { align-items: center; gap: 6px; }
+.ctrl .basemap span { color: var(--ink-2); margin-right: 2px; }
+.ctrl .basemap button { flex: 1; padding: 6px 8px; border-radius: 8px; border: 1px solid var(--line); background: var(--panel-2); color: var(--ink); font-weight: 600; }
+.ctrl .basemap button[aria-pressed="true"] { background: var(--accent); color: #111; border-color: var(--accent); }
+.ctrl .opacity { display: grid; gap: 2px; }
+#oplabel { color: var(--ink); font-weight: 700; }

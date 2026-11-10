@@ -75,7 +75,7 @@ export function renderMethod(root: HTMLElement, data: Data) {
 
     <h3>10. 출처</h3>
     <ul>${data.meta.sources.map((s) => `<li><a href="${s.url}" target="_blank" rel="noopener">${s.name}</a> — ${s.by}</li>`).join("")}
-      <li>배경지도: © OpenStreetMap contributors © CARTO</li></ul>
+      <li>배경지도: © OpenStreetMap contributors, OpenFreeMap · 위성 영상: Esri World Imagery (© Esri, Maxar, Earthstar Geographics)</li></ul>
     <p class="hint">S-DoT 데이터를 이용한 개인·팀의 분석 결과이며 서울시의 공식 입장이 아닙니다.</p>
   </article>`;
 }

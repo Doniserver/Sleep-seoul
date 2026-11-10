@@ -39,6 +39,14 @@ export function renderMap(root: HTMLElement, data: Data, params: URLSearchParams
             <input type="range" id="hour" min="0" max="8" step="1" value="0" aria-describedby="hlabel" />
           </label>
         </div>
+        <div class="row basemap" role="group" aria-label="배경 지도">
+          <span>배경</span>
+          <button type="button" id="bm-normal" aria-pressed="true">일반 지도</button>
+          <button type="button" id="bm-sat" aria-pressed="false">위성 지도</button>
+        </div>
+        <label class="opacity">색 진하기 <span id="oplabel">80%</span>
+          <input type="range" id="op" min="20" max="100" step="5" value="80" aria-describedby="oplabel" />
+        </label>
         <div class="row toggles">
           <label><input type="checkbox" id="t3d" /> 3D 기둥</label>
           <label><input type="checkbox" id="tsen" /> 센서 위치</label>
@@ -114,10 +122,18 @@ export function renderMap(root: HTMLElement, data: Data, params: URLSearchParams
     }
   };
 
+  let baseDrawLayers: string[] = [];
   // 배경 타일을 다 받을 때까지 기다리지 않고, 스타일만 준비되면 바로 색칠
   map.once("style.load", () => {
     // 배경지도의 글자·도로 레이어는 우리 색칠 위로 오도록 첫 symbol 레이어 앞에 끼운다
     const firstSymbol = map.getStyle().layers.find((l) => l.type === "symbol")?.id;
+    // 일반 지도의 그림 레이어(도로·건물·물 등). 위성 모드에서는 숨기고 지명 글자(symbol)만 남긴다
+    baseDrawLayers = map.getStyle().layers.filter((l) => l.type !== "symbol" && l.type !== "background").map((l) => l.id);
+    // 위성 영상 (Esri World Imagery, 키 없음). 처음엔 숨겨 두고 버튼으로 켠다
+    map.addSource("sat", { type: "raster", tileSize: 256, maxzoom: 18,
+      tiles: ["https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}"],
+      attribution: "위성: Esri, Maxar, Earthstar Geographics" });
+    map.addLayer({ id: "sat", type: "raster", source: "sat", layout: { visibility: "none" } }, firstSymbol);
     map.addSource("dongs", { type: "geojson", data: data.geo });
     const color: any = ["case", ["boolean", ["feature-state", "has"], false], step(["feature-state", "v"]), NODATA];
     map.addLayer({ id: "fill", type: "fill", source: "dongs", paint: { "fill-color": color, "fill-opacity": 0.8 } }, firstSymbol);
@@ -166,6 +182,35 @@ export function renderMap(root: HTMLElement, data: Data, params: URLSearchParams
     let i = +hour.value; if (i === 0) i = 0;
     st.playing = window.setInterval(() => { i = i >= 8 ? 1 : i + 1; setHour(i); }, 1100);
   });
+  // 배경 지도 전환 + 색 진하기
+  const bmNormal = root.querySelector<HTMLButtonElement>("#bm-normal")!;
+  const bmSat = root.querySelector<HTMLButtonElement>("#bm-sat")!;
+  const op = root.querySelector<HTMLInputElement>("#op")!;
+  const opLabel = root.querySelector<HTMLElement>("#oplabel")!;
+  const applyOpacity = () => {
+    const v = +op.value / 100;
+    opLabel.textContent = `${op.value}%`;
+    if (!map.getLayer("fill")) return;
+    map.setPaintProperty("fill", "fill-opacity", v);
+    map.setPaintProperty("ext", "fill-extrusion-opacity", Math.min(1, v + 0.1));
+    if (map.getLayer("bfill")) map.setPaintProperty("bfill", "fill-opacity", Math.min(1, v + 0.05));
+  };
+  const setBasemap = (sat: boolean) => {
+    bmNormal.setAttribute("aria-pressed", String(!sat));
+    bmSat.setAttribute("aria-pressed", String(sat));
+    if (!map.getLayer("sat")) return;
+    map.setLayoutProperty("sat", "visibility", sat ? "visible" : "none");
+    for (const id of baseDrawLayers) map.setLayoutProperty(id, "visibility", sat ? "none" : "visible");
+    // 위성 위에서는 동 경계를 흰 선으로, 색은 조금 옅게 해서 사진이 보이게
+    map.setPaintProperty("line", "line-color", sat ? "#ffffff" : "#0b111c");
+    map.setPaintProperty("line", "line-opacity", sat ? 0.55 : 1);
+    op.value = sat ? "50" : "80";
+    applyOpacity();
+  };
+  bmNormal.addEventListener("click", () => setBasemap(false));
+  bmSat.addEventListener("click", () => setBasemap(true));
+  op.addEventListener("input", applyOpacity);
+
   root.querySelector<HTMLInputElement>("#t3d")!.addEventListener("change", (e) => {
     const on = (e.target as HTMLInputElement).checked;
     map.setLayoutProperty("ext", "visibility", on ? "visible" : "none");
