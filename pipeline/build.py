@@ -31,7 +31,7 @@ def _json_default(o):
 
 def dump(name: str, obj):
     C.WEB_DATA.mkdir(parents=True, exist_ok=True)
-    s = json.dumps(obj, ensure_ascii=False, separators=(",", ":"), default=_json_default)
+    s = json.dumps(obj, ensure_ascii=False, separators=(",", ":"), default=_json_default, allow_nan=False)
     (C.WEB_DATA / name).write_text(s, encoding="utf-8")
     print(f"  {name}: {len(s) / 1024:.0f} KB")
 
@@ -60,7 +60,7 @@ def run(days: int = 365):
         if pd.isna(r.get("lat")):
             continue
         pts.append({"sn": sn, "lat": round(float(r["lat"]), 5), "lon": round(float(r["lon"]), 5),
-                    "rgn": r["rgn"], "rgn_ko": C.RGN_KO.get(r["rgn"], r["rgn"]), "adm": r["adm"],
+                    "rgn": r["rgn"], "rgn_ko": C.RGN_KO.get(r["rgn"], r["rgn"]), "adm": r["adm"] if pd.notna(r["adm"]) else None,
                     "used": bool(sn in basis.index), "noise_ok": bool(r["noise_ok"]),
                     "l_night": A._r(r.get("l_night"))})
     dump("sensors.json", pts)

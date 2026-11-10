@@ -2,9 +2,36 @@ import * as maplibregl from "maplibre-gl";
 import type { Map as MlMap } from "maplibre-gl";
 import "maplibre-gl/dist/maplibre-gl.css";
 import workerUrl from "maplibre-gl/dist/maplibre-gl-worker.mjs?url";
-import { COLORS, LABELS, NODATA, step } from "./colors";
+import { COLORS, LABELS, NODATA, colorFor, step } from "./colors";
 import { type Data, type Dong, HOURS, fmt, loadBuildings, loadSensors, sortedDongs } from "./data";
+import { type Near, type Place, dongAt, nearestSensors, searchPlaces } from "./place";
 import { renderReport } from "./report";
+
+function escHtml(s: string) {
+  return s.replace(/[&<>"']/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]!));
+}
+
+/** 장소 카드: 그 위치 자체를 잰 값이 아님을 분명히 */
+function placeCard(p: Place, d: Dong, near: Near[]): HTMLElement {
+  const el = document.createElement("section");
+  el.className = "placecard";
+  el.setAttribute("aria-label", `${p.name} 주변 소음`);
+  const m = (x: number) => (x < 1000 ? `${Math.round(x / 10) * 10}m` : `${(x / 1000).toFixed(1)}km`);
+  el.innerHTML = `
+    <p class="pc-kicker">검색한 장소</p>
+    <h2>${escHtml(p.name)}</h2>
+    ${p.addr ? `<p class="hint">${escHtml(p.addr)}</p>` : ""}
+    <div class="pc-row">
+      <div><span class="chip sm" style="background:${colorFor(d.l_night)}"></span><b>${fmt(d.l_night, 1, "dB")}</b>
+        <p class="lbl">${escHtml(d.gu)} ${escHtml(d.name)} 대표값(밤)</p></div>
+      ${near[0] ? `<div><span class="chip sm" style="background:${colorFor(near[0].s.l_night)}"></span><b>${fmt(near[0].s.l_night, 1, "dB")}</b>
+        <p class="lbl">가장 가까운 센서 · ${m(near[0].d)}</p></div>` : ""}
+    </div>
+    ${near.length ? `<ol class="pc-near">${near.map((n) => `<li>센서 ${n.s.sn} · ${m(n.d)} · ${escHtml(n.s.rgn_ko)} · 밤 <b>${fmt(n.s.l_night, 1, "dB")}</b></li>`).join("")}</ol>`
+                  : `<p class="hint">2km 안에 쓸 수 있는 센서가 없습니다.</p>`}
+    <p class="hint">이 건물 자체를 잰 값이 아닙니다. 지도에 점선으로 이은 <b>가까운 길가 센서</b>의 밤 소음과, 이 장소가 속한 <b>동네 대표값</b>입니다. 센서와 건물 사이 거리·도로 방향에 따라 실제와 다를 수 있습니다.</p>`;
+  return el;
+}
 
 // 번들러가 워커 파일을 옮기므로 위치를 직접 알려준다
 maplibregl.setWorkerUrl(workerUrl);
@@ -25,9 +52,15 @@ export function renderMap(root: HTMLElement, data: Data, params: URLSearchParams
     <section class="mapwrap" aria-label="서울의 밤 지도">
       <div id="map" role="application" aria-label="행정동별 밤 소음 지도. 아래 검색창으로도 동네를 고를 수 있습니다."></div>
       <div class="ctrl">
-        <label class="search">동네 찾기
-          <input list="dong-list" id="q" placeholder="예: 역삼1동" autocomplete="off" />
-        </label>
+        <form class="search" id="qform" role="search">
+          <label for="q">동네·건물·장소 찾기</label>
+          <div class="qrow">
+            <input list="dong-list" id="q" placeholder="예: 역삼1동, 호암교수회관, 강남역" autocomplete="off" />
+            <button type="submit">찾기</button>
+          </div>
+          <p id="qmsg" class="qmsg" aria-live="polite"></p>
+          <ul id="qres" class="qres"></ul>
+        </form>
         <datalist id="dong-list">${sortedDongs(data).map((d) => `<option value="${d.gu} ${d.name}"></option>`).join("")}</datalist>
         <div class="row">
           <label>기간 <select id="month"><option value="all">전체 (${data.meta.period.start} ~ ${data.meta.period.end})</option>
@@ -253,11 +286,71 @@ export function renderMap(root: HTMLElement, data: Data, params: URLSearchParams
     legend.hidden = !el.checked;
     root.querySelector<HTMLElement>("#nlegend")!.hidden = el.checked;
   });
+  // ── 검색: 동 이름이면 동, 아니면 건물·장소 ──────────────────
   const qInput = root.querySelector<HTMLInputElement>("#q")!;
+  const qmsg = root.querySelector<HTMLElement>("#qmsg")!;
+  const qres = root.querySelector<HTMLUListElement>("#qres")!;
+  const findDong = (v: string) =>
+    Object.values(data.dongs).find((x) => `${x.gu} ${x.name}` === v) ?? Object.values(data.dongs).find((x) => x.name === v);
   qInput.addEventListener("change", () => {
-    const v = qInput.value.trim();
-    const d = Object.values(data.dongs).find((x) => `${x.gu} ${x.name}` === v) ?? Object.values(data.dongs).find((x) => x.name === v);
-    if (d) select(d.code, true);
+    const d = findDong(qInput.value.trim());
+    if (d) { clearPlace(); qres.innerHTML = ""; qmsg.textContent = ""; select(d.code, true); }
   });
+  root.querySelector<HTMLFormElement>("#qform")!.addEventListener("submit", async (e) => {
+    e.preventDefault();
+    const v = qInput.value.trim();
+    qres.innerHTML = "";
+    if (!v) return;
+    const d = findDong(v);
+    if (d) { clearPlace(); qmsg.textContent = ""; select(d.code, true); return; }
+    qmsg.textContent = "찾는 중…";
+    try {
+      const { places, used } = await searchPlaces(v, data);
+      if (!places.length) { qmsg.textContent = `서울 안에서 "${v}"을(를) 찾지 못했습니다. 건물 이름만 넣어 보세요(예: 호암교수회관).`; return; }
+      qmsg.textContent = used !== v ? `"${used}"(으)로 찾은 결과입니다.` : `${places.length}곳을 찾았습니다.`;
+      qres.innerHTML = places.map((p, i) => `<li><button type="button" class="link" data-i="${i}">${escHtml(p.name)}</button> <small>${escHtml(p.addr)}</small></li>`).join("");
+      qres.querySelectorAll<HTMLButtonElement>("button").forEach((b) => b.addEventListener("click", () => showPlace(places[+b.dataset.i!])));
+      showPlace(places[0]);
+    } catch (err) {
+      qmsg.textContent = `장소 검색 서비스에 연결하지 못했습니다. (${String(err)})`;
+    }
+  });
+
+  let marker: maplibregl.Marker | null = null;
+  const clearPlace = () => {
+    marker?.remove(); marker = null;
+    (map.getSource("near") as maplibregl.GeoJSONSource | undefined)?.setData({ type: "FeatureCollection", features: [] });
+  };
+  const showPlace = async (p: Place) => {
+    const code = dongAt(data, p.lon, p.lat);
+    if (!code) return;
+    const sensors = await loadSensors(data);
+    const near = nearestSensors(sensors, p.lon, p.lat);
+    clearPlace();
+    marker = new maplibregl.Marker({ color: "#f5b041" }).setLngLat([p.lon, p.lat]).addTo(map);
+    const fc: any = { type: "FeatureCollection", features: near.flatMap((n, i) => [
+      { type: "Feature", properties: { kind: "line" }, geometry: { type: "LineString", coordinates: [[p.lon, p.lat], [n.s.lon, n.s.lat]] } },
+      { type: "Feature", properties: { kind: "pt", label: `${i + 1}`, v: n.s.l_night }, geometry: { type: "Point", coordinates: [n.s.lon, n.s.lat] } },
+    ]) };
+    if (!map.getSource("near")) {
+      map.addSource("near", { type: "geojson", data: fc });
+      map.addLayer({ id: "near-line", type: "line", source: "near", filter: ["==", ["get", "kind"], "line"],
+        paint: { "line-color": "#ffffff", "line-width": 1.5, "line-dasharray": [2, 2] } });
+      map.addLayer({ id: "near-pt", type: "circle", source: "near", filter: ["==", ["get", "kind"], "pt"],
+        paint: { "circle-radius": 9, "circle-color": step(["get", "v"]) as any, "circle-stroke-color": "#ffffff", "circle-stroke-width": 2 } });
+    } else (map.getSource("near") as maplibregl.GeoJSONSource).setData(fc);
+    select(code);
+    map.flyTo({ center: [p.lon, p.lat], zoom: 15, duration: 700 });
+    history.replaceState(null, "", `#/map?d=${code}&p=${p.lat.toFixed(5)},${p.lon.toFixed(5)}&n=${encodeURIComponent(p.name)}`);
+    panel.prepend(placeCard(p, data.dongs[code], near));
+  };
+
+  // 공유한 주소로 들어오면 장소 다시 표시
+  const pp = params.get("p");
+  if (pp) {
+    const [lat, lon] = pp.split(",").map(Number);
+    const pl: Place = { name: params.get("n") ?? "선택한 장소", addr: "", lat, lon };
+    map.once("idle", () => showPlace(pl));
+  }
   return () => { stop(); map.remove(); };
 }
