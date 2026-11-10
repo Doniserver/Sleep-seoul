@@ -1,0 +1,75 @@
+name: 매일 갱신 · 배포
+
+on:
+  schedule:
+    - cron: "30 21 * * *"   # 매일 06:30 KST (21:30 UTC)
+  workflow_dispatch:
+  push:
+    branches: [main]
+    paths: ["web/**", "pipeline/**", ".github/workflows/**"]
+
+permissions:
+  contents: write
+  pages: write
+  id-token: write
+
+concurrency:
+  group: update
+  cancel-in-progress: false
+
+env:
+  TZ: Asia/Seoul
+
+jobs:
+  update:
+    # 예약 실행·수동 실행일 때만 새 데이터를 받는다
+    if: github.event_name != 'push'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with: { python-version: "3.12", cache: pip }
+      - run: pip install -r requirements.txt
+      - name: 테스트
+        run: python -m pytest -q pipeline/tests
+      - name: S-DoT 최근 3일 수집 (Open API)
+        env:
+          SEOUL_OPENAPI_KEY: ${{ secrets.SEOUL_OPENAPI_KEY }}
+        run: python -m pipeline.fetch_sdot api --days 3
+      - name: 집계 (경계 파일 받기 → 빌드)
+        run: |
+          mkdir -p data/raw/boundary
+          curl -sL -o data/raw/boundary/HangJeongDong_ver20261001.geojson \
+            https://raw.githubusercontent.com/vuski/admdongkor/master/ver20261001/HangJeongDong_ver20261001.geojson
+          cp data/locations/*.xlsx data/raw/
+          python -m pipeline.build
+          python -m pipeline.verify
+      - name: 바뀐 데이터 커밋
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add data/hourly web/public/data
+          git diff --cached --quiet || git commit -m "data: $(date +%F) 자동 갱신"
+          git push
+
+  deploy:
+    needs: update
+    if: always() && (needs.update.result == 'success' || needs.update.result == 'skipped')
+    runs-on: ubuntu-latest
+    environment:
+      name: github-pages
+      url: ${{ steps.deploy.outputs.page_url }}
+    steps:
+      - uses: actions/checkout@v4
+        with: { ref: main }
+      - uses: actions/setup-node@v4
+        with: { node-version: 22, cache: npm, cache-dependency-path: web/package-lock.json }
+      - run: npm ci
+        working-directory: web
+      - run: npm run build
+        working-directory: web
+      - uses: actions/configure-pages@v5
+      - uses: actions/upload-pages-artifact@v3
+        with: { path: web/dist }
+      - id: deploy
+        uses: actions/deploy-pages@v4

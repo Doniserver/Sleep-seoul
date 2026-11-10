@@ -1,0 +1,135 @@
+:root {
+  --bg: #0f1626;
+  --panel: #151e31;
+  --panel-2: #1c2740;
+  --line: #2c3a58;
+  --ink: #eef2f8;      /* bg 대비 15:1 */
+  --ink-2: #b7c1d3;    /* bg 대비 9:1 */
+  --accent: #f5b041;
+  --quiet: #9fd3c7;
+  --win: #9fd3c7;
+  color-scheme: dark;
+  font-family: "Pretendard", "Apple SD Gothic Neo", "Noto Sans KR", system-ui, sans-serif;
+  line-height: 1.5;
+}
+* { box-sizing: border-box; }
+body { margin: 0; background: var(--bg); color: var(--ink); font-size: 15px; }
+a { color: #9cc9ff; }
+a:focus-visible, button:focus-visible, select:focus-visible, input:focus-visible { outline: 3px solid var(--accent); outline-offset: 2px; }
+.skip { position: absolute; left: -9999px; } .skip:focus { left: 8px; top: 8px; background: #fff; color: #000; padding: 6px 10px; z-index: 10; }
+.sr { position: absolute; width: 1px; height: 1px; overflow: hidden; clip: rect(0 0 0 0); }
+
+.top { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 8px 24px; padding: 12px 20px; border-bottom: 1px solid var(--line); }
+.brand h1 { margin: 0; font-size: 21px; letter-spacing: -0.02em; }
+.brand h1 a { color: var(--ink); text-decoration: none; }
+.brand h1 a::before { content: "☾ "; color: var(--accent); }
+.tag { margin: 0; color: var(--ink-2); font-size: 13px; }
+nav { display: flex; gap: 4px; flex-wrap: wrap; }
+nav a { color: var(--ink-2); text-decoration: none; padding: 7px 12px; border-radius: 8px; font-weight: 600; }
+nav a[aria-current] { background: var(--panel-2); color: var(--ink); box-shadow: inset 0 -2px 0 var(--accent); }
+.notice { margin: 0; padding: 7px 20px; background: #1b2438; color: var(--ink-2); font-size: 13px; border-bottom: 1px solid var(--line); }
+.notice strong { color: var(--ink); }
+main { min-height: 60vh; }
+.loading, .empty { padding: 24px; color: var(--ink-2); }
+
+/* 지도 화면 */
+.mapgrid { display: grid; grid-template-columns: minmax(0, 1fr) 440px; height: calc(100vh - 118px); min-height: 560px; }
+.mapwrap { position: relative; }
+#map { position: absolute; inset: 0; }
+.ctrl { position: absolute; left: 12px; top: 12px; width: 300px; max-width: calc(100% - 70px); background: rgba(15, 22, 38, 0.94); border: 1px solid var(--line); border-radius: 12px; padding: 12px; display: grid; gap: 10px; font-size: 13.5px; }
+.ctrl label { display: grid; gap: 4px; color: var(--ink-2); }
+.ctrl .row { display: flex; gap: 8px; align-items: end; }
+.ctrl .grow { flex: 1; }
+.ctrl .toggles { flex-wrap: wrap; gap: 4px 12px; }
+.ctrl .toggles label { display: flex; align-items: center; gap: 5px; color: var(--ink); }
+input[type="text"], input:not([type]), input[list], select { width: 100%; background: var(--panel-2); color: var(--ink); border: 1px solid var(--line); border-radius: 8px; padding: 7px 9px; font: inherit; }
+input[type="range"] { width: 100%; accent-color: var(--accent); }
+#hlabel { color: var(--ink); font-weight: 700; }
+button { font: inherit; cursor: pointer; }
+#play { width: 40px; height: 36px; border-radius: 8px; border: 1px solid var(--line); background: var(--accent); color: #111; font-weight: 800; }
+#play:disabled, input:disabled { opacity: 0.45; cursor: not-allowed; }
+.legend p { margin: 0 0 4px; color: var(--ink-2); }
+.legend ul { list-style: none; margin: 0 0 6px; padding: 0; display: grid; grid-template-columns: repeat(2, 1fr); gap: 2px 8px; }
+.legend li { display: flex; align-items: center; gap: 6px; }
+.legend span { width: 18px; height: 12px; border-radius: 2px; display: inline-block; }
+.legend span.dot { width: 11px; height: 11px; border-radius: 50%; }
+
+.panel { overflow-y: auto; background: var(--panel); border-left: 1px solid var(--line); padding: 16px 18px 28px; }
+.panel h2 { margin: 0; font-size: 20px; }
+.panel h2 span { font-size: 24px; }
+.panel h3 { font-size: 15px; margin: 18px 0 6px; }
+.intro ol { padding-left: 20px; margin: 4px 0; }
+.intro li { margin: 2px 0; }
+.link { background: none; border: none; color: #9cc9ff; padding: 0; text-decoration: underline; }
+.rhead { display: flex; justify-content: space-between; align-items: start; gap: 8px; flex-wrap: wrap; }
+.badge { background: var(--panel-2); border: 1px solid var(--accent); color: var(--ink); padding: 3px 10px; border-radius: 999px; font-size: 12.5px; white-space: nowrap; }
+.big { display: flex; gap: 24px; margin: 12px 0 4px; }
+.big .num { font-size: 44px; font-weight: 800; letter-spacing: -0.03em; line-height: 1; }
+.chip { display: inline-block; width: 10px; height: 38px; border-radius: 3px; margin-right: 8px; vertical-align: -4px; }
+.big .unit { font-size: 16px; color: var(--ink-2); margin-left: 3px; }
+.lbl { margin: 4px 0 0; color: var(--ink-2); font-size: 12.5px; }
+.mini { font-size: 12px; }
+.scale svg { width: 100%; max-width: 420px; display: block; }
+.who { padding-left: 18px; margin: 6px 0; font-size: 14px; }
+.who b { color: var(--accent); }
+.hint { color: var(--ink-2); font-size: 12.5px; margin: 6px 0; }
+.stats { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; margin: 10px 0; }
+.stats div { background: var(--panel-2); border-radius: 10px; padding: 8px 10px; }
+.stats dt { color: var(--ink-2); font-size: 12.5px; }
+.stats dd { margin: 0; font-size: 20px; font-weight: 700; }
+.stats dd small { font-size: 12px; color: var(--ink-2); margin-left: 3px; font-weight: 400; }
+.stats dd.s { font-size: 11.5px; font-weight: 400; color: var(--ink-2); }
+.ai { background: var(--panel-2); border: 1px dashed var(--line); border-radius: 10px; padding: 4px 12px; margin-top: 10px; }
+.ai h3 { margin-top: 8px; }
+.chart svg { width: 100%; height: auto; display: block; }
+.est { display: inline-block; border: 1px solid var(--accent); color: var(--accent); font-size: 11px; padding: 0 6px; border-radius: 4px; margin-left: 4px; vertical-align: 2px; }
+.gradebar { display: flex; height: 26px; border-radius: 6px; overflow: hidden; font-size: 11.5px; }
+.gradebar span { display: flex; align-items: center; justify-content: center; color: #111; white-space: nowrap; overflow: hidden; padding: 0 3px; }
+.g-0 { background: #ff8a5b; } .g-1 { background: #ffd27a; } .g-2 { background: #8fd0ff; } .g-3 { background: #b3f0c2; }
+.actions button, .pick select { margin-top: 12px; }
+.actions button { width: 100%; padding: 10px; border-radius: 10px; border: 1px solid var(--accent); background: transparent; color: var(--ink); font-weight: 700; }
+.actions button:hover { background: var(--panel-2); }
+.maplibregl-popup-content { background: #fff; color: #111; font-size: 13px; }
+.tip .maplibregl-popup-content { padding: 6px 9px; }
+.maplibregl-popup-content .est { color: #8a4b00; border-color: #8a4b00; }
+
+/* 비교 */
+.compare, .method { max-width: 1100px; margin: 0 auto; padding: 18px 20px 40px; }
+.pick { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; }
+.pick label { display: grid; gap: 4px; color: var(--ink-2); }
+.sw { display: inline-block; width: 14px; height: 4px; border-radius: 2px; margin-right: 6px; vertical-align: middle; }
+.ctable { width: 100%; border-collapse: collapse; margin-top: 14px; font-size: 14.5px; }
+.ctable th, .ctable td { border-bottom: 1px solid var(--line); padding: 8px 10px; text-align: left; }
+.ctable thead th { color: var(--ink-2); font-weight: 600; }
+.ctable td small { color: var(--ink-2); margin-left: 3px; }
+.ctable td.win { background: rgba(159, 211, 199, 0.08); }
+.tag-win { color: #111; background: var(--win); font-size: 11px; padding: 1px 6px; border-radius: 4px; }
+.cgrid { display: grid; grid-template-columns: repeat(auto-fit, minmax(320px, 1fr)); gap: 8px 24px; }
+.method h3 { margin-top: 26px; }
+.method li { margin: 4px 0; }
+.method .lead { color: var(--ink-2); }
+code { background: var(--panel-2); padding: 1px 5px; border-radius: 4px; }
+
+.foot { border-top: 1px solid var(--line); padding: 10px 20px 18px; color: var(--ink-2); font-size: 12px; }
+.foot p { margin: 4px 0; }
+body[data-route="map"] .foot { padding-top: 8px; }
+
+@media (max-width: 900px) {
+  .mapgrid { grid-template-columns: 1fr; height: auto; }
+  .mapwrap { display: flex; flex-direction: column; }
+  #map { position: relative; height: 58vh; min-height: 340px; }
+  /* 휴대폰에서는 조작 상자를 지도 아래로 내려 지도를 가리지 않게 */
+  .ctrl { position: static; width: auto; max-width: none; border-radius: 0; border-width: 1px 0; padding: 12px 16px; gap: 8px; background: var(--panel); }
+  .panel { border-left: 0; border-top: 1px solid var(--line); overflow: visible; padding: 16px; }
+  .legend ul { grid-template-columns: repeat(3, 1fr); }
+  .pick { grid-template-columns: 1fr; }
+  .top { padding: 10px 16px; }
+  .notice, .foot { padding-left: 16px; padding-right: 16px; }
+}
+@media (max-width: 480px) {
+  .legend ul { grid-template-columns: repeat(2, 1fr); }
+  .big { gap: 16px; }
+  .big .num { font-size: 38px; }
+  .ctable { font-size: 13.5px; }
+  .ctable th, .ctable td { padding: 7px 5px; }
+}
