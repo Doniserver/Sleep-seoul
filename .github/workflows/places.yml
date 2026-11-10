@@ -1,0 +1,36 @@
+name: 생활시설 갱신 (상가정보)
+
+on:
+  schedule:
+    - cron: "0 20 1 * *"   # 매월 2일 05:00 KST
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  places:
+    runs-on: ubuntu-latest
+    env:
+      TZ: Asia/Seoul
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with: { python-version: "3.12", cache: pip }
+      - run: pip install -r requirements.txt
+      - name: 경계 파일
+        run: |
+          mkdir -p data/raw/boundary
+          curl -sL -o data/raw/boundary/HangJeongDong_ver20261001.geojson \
+            https://raw.githubusercontent.com/vuski/admdongkor/master/ver20261001/HangJeongDong_ver20261001.geojson
+      - name: 상가정보 수집 → 동별 파일
+        env:
+          DATA_GO_KR_KEY: ${{ secrets.DATA_GO_KR_KEY }}
+        run: python -m pipeline.fetch_places
+      - name: 바뀌었으면 커밋 (다음 매일 갱신 때 배포됨)
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add web/public/data/places web/public/data/places_summary.json
+          git diff --cached --quiet || git commit -m "data: 상가정보 갱신 $(date +%F)"
+          git push

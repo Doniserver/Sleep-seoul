@@ -93,6 +93,13 @@ def run(days: int = 365):
     if bfile.exists():
         meta["sources"].append({"name": "국토교통부 공동주택 단지 목록·기본 정보(K-APT)", "by": "국토교통부",
                                 "url": "https://www.data.go.kr/data/15058453/openapi.do"})
+    pfile = C.WEB_DATA / "places_summary.json"
+    meta["has_places"] = pfile.exists()
+    if pfile.exists():
+        ps = json.loads(pfile.read_text(encoding="utf-8"))
+        ym = ps.get("stdrYm", "")
+        meta["sources"].append({"name": f"소상공인시장진흥공단 상가(상권)정보 ({ym[:4]}-{ym[4:]} 기준)",
+                                "by": "소상공인시장진흥공단", "url": "https://www.data.go.kr/data/15012005/openapi.do"})
     dump("meta.json", meta)
     return meta
 

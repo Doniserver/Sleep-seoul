@@ -104,3 +104,32 @@ export function fmt(v: number | null | undefined, digits = 1, unit = ""): string
 export function sortedDongs(d: Data): Dong[] {
   return Object.values(d.dongs).sort((a, b) => (a.gu + a.name).localeCompare(b.gu + b.name, "ko"));
 }
+
+// ── 생활시설 (상가정보) ─────────────────────────────────────
+export interface PlaceCategory { key: string; name: string; default: boolean }
+export interface PlacesSummary {
+  stdrYm: string; total: number; categories: PlaceCategory[];
+  seoul_median: Record<string, number>; dongs: Record<string, Record<string, number>>;
+  source: { name: string; url: string };
+}
+/** [위도, 경도, 건물명, [[분류번호, 상호, 층, 업종], ...]] */
+export type PlaceBuilding = [number, number, string, [number, string, string, string][]];
+
+let placesSummary: PlacesSummary | null | undefined;
+export async function loadPlacesSummary(): Promise<PlacesSummary | null> {
+  if (placesSummary === undefined) {
+    try { placesSummary = await j<PlacesSummary>("places_summary.json"); } catch { placesSummary = null; }
+  }
+  return placesSummary;
+}
+const placeCache = new Map<string, Promise<PlaceBuilding[]>>();
+export function loadPlaces(code: string): Promise<PlaceBuilding[]> {
+  if (!placeCache.has(code)) placeCache.set(code, j<PlaceBuilding[]>(`places/${code}.json`).catch(() => []));
+  return placeCache.get(code)!;
+}
+
+// 분류 색 (서로 잘 구분되는 색, 소음 색과 섞이지 않게 흰 테두리와 함께 사용)
+export const PLACE_COLORS: Record<string, string> = {
+  food: "#ff7f50", cafe: "#d4a373", bar: "#e056a0", hospital: "#ff4d5e", pharmacy: "#4cd18a", mart: "#3fa9f5",
+  gym: "#a77bf3", academy: "#f5d142", leisure: "#2ec4b6", life: "#f49fbc", office: "#b8c1cc", etc: "#7b8494",
+};
