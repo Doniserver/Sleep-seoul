@@ -2,9 +2,11 @@ import * as maplibregl from "maplibre-gl";
 import type { Map as MlMap } from "maplibre-gl";
 import "maplibre-gl/dist/maplibre-gl.css";
 import workerUrl from "maplibre-gl/dist/maplibre-gl-worker.mjs?url";
-import { COLORS, LABELS, NODATA, colorFor, step } from "./colors";
+import { BREAKS, COLORS, LABELS, NODATA, colorFor, step } from "./colors";
+
+const BUILDING_DEFAULT = "#8a93a6"; // 동 경계에 걸치거나 데이터 없는 동의 건물
 import { type Data, type Dong, HOURS, fmt, loadBuildings, loadSensors, sortedDongs } from "./data";
-import { type Near, type Place, dongAt, nearestSensors, searchPlaces } from "./place";
+import { type Near, type Place, dongAt, makeDongLocator, nearestSensors, searchPlaces } from "./place";
 import { renderReport } from "./report";
 
 function escHtml(s: string) {
@@ -81,10 +83,12 @@ export function renderMap(root: HTMLElement, data: Data, params: URLSearchParams
           <input type="range" id="op" min="20" max="100" step="5" value="80" aria-describedby="oplabel" />
         </label>
         <div class="row toggles">
-          <label><input type="checkbox" id="t3d" /> 3D 기둥</label>
+          <label><input type="checkbox" id="t3b" /> 3D 건물</label>
+          <label><input type="checkbox" id="t3d" /> 3D 기둥(연출)</label>
           <label><input type="checkbox" id="tsen" /> 센서 위치</label>
           <label><input type="checkbox" id="tbld" /> 층간소음 위험(추정)</label>
         </div>
+        <p id="b3dnote" class="hint" hidden>건물 모양·높이는 OpenStreetMap 기준이고, 색은 그 건물이 있는 <b>동의 밤 소음 단계</b>입니다. 건물마다 잰 값이 아닙니다(건물 중심점이 있는 동 기준). 값이 없는 동의 건물은 회색입니다.</p>
         <div class="legend" aria-label="색 범례">
           <div id="nlegend"><p>밤 소음 (dB)</p>
           <ul>${COLORS.map((c, i) => `<li><span style="background:${c}"></span>${LABELS[i]}</li>`).join("")}
@@ -110,6 +114,7 @@ export function renderMap(root: HTMLElement, data: Data, params: URLSearchParams
   const st: State = { hour: "all", month: "all", selected: params.get("d"), three: false, playing: null };
   const map: MlMap = new maplibregl.Map({ container: "map", style: STYLE_URL, center: [126.99, 37.56], zoom: 10.2, minZoom: 9, maxZoom: 16, attributionControl: { compact: true } });
   map.addControl(new maplibregl.NavigationControl({ visualizePitch: true }), "top-right");
+  if (import.meta.env.DEV) (window as any).__map = map; // 개발 중 디버그용
 
   const valueOf = (d: Dong): number | null => {
     if (st.month !== "all") return d.months?.[st.month]?.l_night ?? null;
@@ -134,6 +139,7 @@ export function renderMap(root: HTMLElement, data: Data, params: URLSearchParams
       map.setFeatureState({ source: "dongs", id: f.id as number }, { v: v ?? 0, has: v != null });
     }
     top();
+    if (buildings3D) colorBuildings();
   };
 
   const panel = root.querySelector<HTMLElement>("#panel")!;
@@ -156,6 +162,42 @@ export function renderMap(root: HTMLElement, data: Data, params: URLSearchParams
   };
 
   let baseDrawLayers: string[] = [];
+  let baseBuildingIds: string[] = [];
+  let buildings3D = false;
+  // 건물(벡터 타일 피처)마다 중심점이 속한 동을 계산해 feature-state로 색 단계를 붙인다
+  // (지도 라이브러리의 'within'은 면 도형에 동작하지 않아 직접 계산)
+  const locate = makeDongLocator(data);
+  const bldDong = new Map<number, string | null>();
+  let bldSource = "";
+  const classOf = (code: string | null | undefined): number => {
+    const d = code ? data.dongs[code] : undefined;
+    const v = d ? valueOf(d) : null;
+    if (v == null) return -1;
+    let i = 0; while (i < BREAKS.length && v >= BREAKS[i]) i++;
+    return i;
+  };
+  const tagBuildings = () => {
+    if (!buildings3D || !bldSource) return;
+    for (const f of map.querySourceFeatures(bldSource, { sourceLayer: "building" })) {
+      const id = f.id as number;
+      if (id == null || bldDong.has(id)) continue;
+      const g: any = f.geometry;
+      const ring: number[][] = g.type === "Polygon" ? g.coordinates[0] : g.coordinates[0][0];
+      let sx = 0, sy = 0;
+      for (const [x, y] of ring) { sx += x; sy += y; }
+      const code = locate(sx / ring.length, sy / ring.length);
+      bldDong.set(id, code);
+      map.setFeatureState({ source: bldSource, sourceLayer: "building", id }, { c: classOf(code) });
+    }
+  };
+  /** 값(시간·기간)이 바뀌면 이미 계산한 건물들의 색 단계만 다시 붙인다 */
+  const colorBuildings = () => {
+    if (!bldSource) return;
+    for (const [id, code] of bldDong) map.setFeatureState({ source: bldSource, sourceLayer: "building", id }, { c: classOf(code) });
+    tagBuildings();
+  };
+  let tagTimer = 0;
+  const scheduleTag = () => { clearTimeout(tagTimer); tagTimer = window.setTimeout(tagBuildings, 150); };
   // 배경 타일을 다 받을 때까지 기다리지 않고, 스타일만 준비되면 바로 색칠
   map.once("style.load", () => {
     // 배경지도의 글자·도로 레이어는 우리 색칠 위로 오도록 첫 symbol 레이어 앞에 끼운다
@@ -174,6 +216,25 @@ export function renderMap(root: HTMLElement, data: Data, params: URLSearchParams
       paint: { "fill-extrusion-color": color, "fill-extrusion-opacity": 0.9,
         "fill-extrusion-height": ["case", ["boolean", ["feature-state", "has"], false], ["*", ["max", 0, ["-", ["feature-state", "v"], 33]], 120], 0] } });
     map.addLayer({ id: "line", type: "line", source: "dongs", paint: { "line-color": "#0b111c", "line-width": 0.6 } }, firstSymbol);
+    // 실제 건물 3D (OpenStreetMap 건물 윤곽·높이). 색은 건물이 속한 동의 소음 단계
+    const bldBase = map.getStyle().layers.find((l: any) => l["source-layer"] === "building") as any;
+    if (bldBase) {
+      baseBuildingIds = map.getStyle().layers.filter((l: any) => l["source-layer"] === "building").map((l) => l.id);
+      bldSource = bldBase.source;
+      const bcolor: any = ["match", ["to-number", ["feature-state", "c"], -1], ...COLORS.flatMap((c, i) => [i, c]), BUILDING_DEFAULT];
+      map.addLayer({ id: "b3d", type: "fill-extrusion", source: bldBase.source, "source-layer": "building", minzoom: 13,
+        layout: { visibility: "none" }, filter: ["!=", ["get", "hide_3d"], true],
+        paint: {
+          "fill-extrusion-color": bcolor,
+          "fill-extrusion-height": ["interpolate", ["linear"], ["zoom"], 13, 0, 14.5, ["coalesce", ["get", "render_height"], 8]],
+          "fill-extrusion-base": ["coalesce", ["get", "render_min_height"], 0],
+          "fill-extrusion-opacity": 0.95,
+          "fill-extrusion-vertical-gradient": true,
+        } });
+      map.on("sourcedata", (e: any) => { if (e.sourceId === bldSource && e.isSourceLoaded) scheduleTag(); });
+      map.on("moveend", scheduleTag);
+      map.setLight({ anchor: "viewport", color: "#ffffff", intensity: 0.45, position: [1.2, 200, 35] });
+    }
     map.addLayer({ id: "sel", type: "line", source: "dongs", filter: ["==", ["get", "code"], ""], paint: { "line-color": "#ffffff", "line-width": 2.5 } });
     paint();
     if (st.selected) select(st.selected, true);
@@ -234,6 +295,7 @@ export function renderMap(root: HTMLElement, data: Data, params: URLSearchParams
     if (!map.getLayer("sat")) return;
     map.setLayoutProperty("sat", "visibility", sat ? "visible" : "none");
     for (const id of baseDrawLayers) map.setLayoutProperty(id, "visibility", sat ? "none" : "visible");
+    if (buildings3D) for (const id of baseBuildingIds) map.setLayoutProperty(id, "visibility", "none");
     // 위성 위에서는 동 경계를 흰 선으로, 색은 조금 옅게 해서 사진이 보이게
     map.setPaintProperty("line", "line-color", sat ? "#ffffff" : "#0b111c");
     map.setPaintProperty("line", "line-opacity", sat ? 0.55 : 1);
@@ -244,11 +306,31 @@ export function renderMap(root: HTMLElement, data: Data, params: URLSearchParams
   bmSat.addEventListener("click", () => setBasemap(true));
   op.addEventListener("input", applyOpacity);
 
-  root.querySelector<HTMLInputElement>("#t3d")!.addEventListener("change", (e) => {
-    const on = (e.target as HTMLInputElement).checked;
+  // 3D 기둥(동 전체를 한 덩어리로 세우는 연출용)
+  const t3d = root.querySelector<HTMLInputElement>("#t3d")!;
+  const t3b = root.querySelector<HTMLInputElement>("#t3b")!;
+  t3d.addEventListener("change", () => {
+    const on = t3d.checked;
+    if (on && t3b.checked) { t3b.checked = false; setBuildings3D(false, false); }
     map.setLayoutProperty("ext", "visibility", on ? "visible" : "none");
     map.setLayoutProperty("fill", "visibility", on ? "none" : "visible");
     map.easeTo({ pitch: on ? 55 : 0, bearing: on ? -15 : 0, duration: 700 });
+  });
+  // 3D 건물(실제 건물 모양·높이)
+  const setBuildings3D = (on: boolean, move = true) => {
+    if (!map.getLayer("b3d")) return;
+    buildings3D = on;
+    map.setLayoutProperty("b3d", "visibility", on ? "visible" : "none");
+    for (const id of baseBuildingIds) map.setLayoutProperty(id, "visibility", on ? "none" : (bmSat.getAttribute("aria-pressed") === "true" ? "none" : "visible"));
+    if (on) scheduleTag();
+    root.querySelector<HTMLElement>("#b3dnote")!.hidden = !on;
+    if (!move) return;
+    if (on) map.easeTo({ pitch: 62, bearing: -20, zoom: Math.max(map.getZoom(), 15.2), duration: 900 });
+    else map.easeTo({ pitch: 0, bearing: 0, duration: 700 });
+  };
+  t3b.addEventListener("change", () => {
+    if (t3b.checked && t3d.checked) { t3d.checked = false; map.setLayoutProperty("ext", "visibility", "none"); map.setLayoutProperty("fill", "visibility", "visible"); }
+    setBuildings3D(t3b.checked);
   });
   root.querySelector<HTMLInputElement>("#tsen")!.addEventListener("change", async (e) => {
     const on = (e.target as HTMLInputElement).checked;

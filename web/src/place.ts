@@ -80,3 +80,22 @@ export function nearestSensors(sensors: Sensor[], lon: number, lat: number, k = 
     .sort((a, b) => a.d - b.d)
     .slice(0, k);
 }
+
+/** 많은 점을 빠르게 동에 넣기 위한 판정기 (동마다 경계 상자로 먼저 거름) */
+export function makeDongLocator(data: Data): (lon: number, lat: number) => string | null {
+  const items = data.geo.features.map((f) => {
+    const g: any = f.geometry;
+    const polys: number[][][][] = g.type === "Polygon" ? [g.coordinates] : g.coordinates;
+    let x0 = Infinity, y0 = Infinity, x1 = -Infinity, y1 = -Infinity;
+    for (const p of polys) for (const [x, y] of p[0]) { if (x < x0) x0 = x; if (x > x1) x1 = x; if (y < y0) y0 = y; if (y > y1) y1 = y; }
+    return { code: (f.properties as any).code as string, polys, bb: [x0, y0, x1, y1] };
+  });
+  return (lon, lat) => {
+    for (const it of items) {
+      const [x0, y0, x1, y1] = it.bb;
+      if (lon < x0 || lon > x1 || lat < y0 || lat > y1) continue;
+      if (it.polys.some((p) => inPolygon(lon, lat, p))) return it.code;
+    }
+    return null;
+  };
+}

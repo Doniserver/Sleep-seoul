@@ -76,6 +76,7 @@ export function renderMethod(root: HTMLElement, data: Data) {
     <h3>10. 출처</h3>
     <ul>${data.meta.sources.map((s) => `<li><a href="${s.url}" target="_blank" rel="noopener">${s.name}</a> — ${s.by}</li>`).join("")}
       <li>배경지도: © OpenStreetMap contributors, OpenFreeMap · 위성 영상: Esri World Imagery (© Esri, Maxar, Earthstar Geographics)</li>
+      <li>3D 건물: 배경지도에 들어 있는 OpenStreetMap 건물 윤곽·높이를 세운 것입니다. 색은 건물 중심점이 있는 <b>동의 밤 소음 단계</b>이며 건물마다 잰 값이 아닙니다. 높이 정보가 없는 건물은 낮게 표시됩니다.</li>
       <li>건물·장소 검색: <a href="https://photon.komoot.io" target="_blank" rel="noopener">Photon</a>(komoot, OpenStreetMap 데이터). 검색어는 이 서비스로 전송됩니다. OpenStreetMap에 없는 작은 건물은 찾지 못할 수 있습니다.</li></ul>
     <p class="hint">S-DoT 데이터를 이용한 개인·팀의 분석 결과이며 서울시의 공식 입장이 아닙니다.</p>
   </article>`;
