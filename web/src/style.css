@@ -170,3 +170,17 @@ body[data-route="map"] .foot { padding-top: 8px; }
 }
 .legend.dim #nlegend { opacity: 0.4; }
 .period { margin: 6px 0 0; display: inline-block; font-size: 12.5px; color: var(--ink); background: var(--panel-2); border: 1px solid var(--line); border-radius: 6px; padding: 2px 8px; }
+.trange { border: 1px solid var(--line); border-radius: 10px; padding: 6px 10px 8px; margin: 0; display: grid; gap: 6px; }
+.trange legend { color: var(--ink-2); padding: 0 4px; font-size: 13px; }
+.trange legend #hlabel { color: var(--ink); font-weight: 700; margin-left: 4px; }
+.trange .row { align-items: end; }
+.trange label { flex: 1; }
+.trange .tilde { padding-bottom: 8px; color: var(--ink-2); }
+.presets { display: flex; flex-wrap: wrap; gap: 4px; }
+.presets button { padding: 4px 9px; border-radius: 999px; border: 1px solid var(--line); background: var(--panel-2); color: var(--ink); font-size: 12.5px; }
+.presets button[aria-pressed="true"] { background: var(--accent); border-color: var(--accent); color: #111; font-weight: 700; }
+.rangebox { margin: 10px 0 2px; padding: 8px 10px; border-radius: 10px; background: var(--panel-2); border: 1px solid var(--accent); display: flex; align-items: baseline; gap: 6px; flex-wrap: wrap; }
+.rangebox > b { font-size: 26px; }
+.rangebox small { color: var(--ink-2); margin-right: 8px; }
+.rangebox span:last-child { font-size: 12.5px; color: var(--ink-2); }
+.cyear { display: inline-grid; gap: 4px; color: var(--ink-2); margin: 4px 0 10px; min-width: 200px; }

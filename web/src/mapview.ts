@@ -6,7 +6,7 @@ import { BREAKS, COLORS, LABELS, NODATA, colorFor, step } from "./colors";
 
 const BUILDING_DEFAULT = "#8a93a6"; // 동 경계에 걸치거나 데이터 없는 동의 건물
 const B3D_COLOR: any = ["match", ["to-number", ["feature-state", "c"], -1], ...COLORS.flatMap((c, i) => [i, c]), BUILDING_DEFAULT];
-import { type Data, type Dong, type YearInfo, HOURS, fmt, loadBuildings, loadSensors, loadYear, loadYearsIndex, sortedDongs } from "./data";
+import { type Data, type Dong, type YearInfo, fmt, loadBuildings, loadSensors, loadYear, loadYearsIndex, sortedDongs } from "./data";
 import { type Near, type Place, dongAt, makeDongLocator, nearestSensors, searchPlaces } from "./place";
 import { renderReport } from "./report";
 
@@ -49,7 +49,6 @@ const BLD_LABELS = ["20% 미만", "20–40%", "40–60%", "60–80%", "80% 이�
 interface State { hour: number | "all"; month: string | "all"; selected: string | null; three: boolean; playing: number | null }
 
 export function renderMap(root: HTMLElement, data: Data, params: URLSearchParams, onCompare: (code: string) => void) {
-  const months = data.meta.months;
   root.innerHTML = `
   <div class="mapgrid">
     <section class="mapwrap" aria-label="서울의 밤 지도">
@@ -66,17 +65,22 @@ export function renderMap(root: HTMLElement, data: Data, params: URLSearchParams
         </form>
         <datalist id="dong-list">${sortedDongs(data).map((d) => `<option value="${d.gu} ${d.name}"></option>`).join("")}</datalist>
         <div class="row">
-          <label>기간 <select id="month">
-            <optgroup label="최근 기간"><option value="all">최근 (${data.meta.period.start} ~ ${data.meta.period.end})</option>
-            ${months.map((m) => `<option value="${m}">${m.replace("-", "년 ")}월</option>`).join("")}</optgroup>
-            <optgroup label="연도별" id="yeargroup"></optgroup></select></label>
+          <label>연도 <select id="month" aria-label="연도 선택"></select></label>
         </div>
-        <div class="row slider">
-          <button type="button" id="play" aria-pressed="false" aria-label="밤 시간 재생">▶</button>
-          <label class="grow">시간 <span id="hlabel" aria-live="polite">밤 전체</span>
-            <input type="range" id="hour" min="0" max="8" step="1" value="0" aria-describedby="hlabel" />
-          </label>
-        </div>
+        <fieldset class="trange">
+          <legend>시간대 <span id="hlabel" aria-live="polite">밤 22시~06시</span></legend>
+          <div class="row">
+            <label>시작 <select id="h0">${Array.from({ length: 24 }, (_, h) => `<option value="${h}" ${h === 22 ? "selected" : ""}>${h}시</option>`).join("")}</select></label>
+            <span class="tilde" aria-hidden="true">~</span>
+            <label>끝 <select id="h1">${Array.from({ length: 24 }, (_, i) => i + 1).map((h) => `<option value="${h}" ${h === 6 ? "selected" : ""}>${h === 24 ? "24시(자정)" : h + "시"}</option>`).join("")}</select></label>
+          </div>
+          <div class="presets" role="group" aria-label="자주 쓰는 시간대">
+            <button type="button" data-r="22,6" aria-pressed="true">밤 22~06시</button>
+            <button type="button" data-r="0,6" aria-pressed="false">새벽 0~6시</button>
+            <button type="button" data-r="6,22" aria-pressed="false">낮 06~22시</button>
+            <button type="button" data-r="0,24" aria-pressed="false">하루 전체</button>
+          </div>
+        </fieldset>
         <div class="row basemap" role="group" aria-label="배경 지도">
           <span>배경</span>
           <button type="button" id="bm-normal" aria-pressed="true">일반 지도</button>
@@ -105,8 +109,8 @@ export function renderMap(root: HTMLElement, data: Data, params: URLSearchParams
     <aside id="panel" class="panel" aria-live="polite">
       <div class="intro">
         <h2>서울의 밤</h2>
-        <p>서울 행정동 ${data.meta.counts.dongs_with_data}곳의 밤(22~06시) 바깥 소음입니다. 동을 누르거나 위에서 검색하면 동네 리포트가 열립니다.</p>
-        <p>서울 행정동 중앙값 <b>${fmt(data.meta.seoul.l_night_median, 1, "dB")}</b> · WHO 야간 목표는 집 밖 연평균 <b>40dB</b>입니다.</p>
+        <p id="intro-what">연도별 바깥 소음을 불러오는 중…</p>
+        <p>서울 행정동 중앙값 <b id="intro-med">—</b> · WHO 야간 목표는 집 밖 연평균 <b>40dB</b>입니다.</p>
         <h3>가장 조용한 동 5곳</h3><ol id="top-q"></ol>
         <h3>가장 시끄러운 동 5곳</h3><ol id="top-l"></ol>
         <p class="hint">센서가 1개뿐인 동이 많습니다. 순위는 그 센서 위치의 영향을 받습니다.</p>
@@ -119,9 +123,19 @@ export function renderMap(root: HTMLElement, data: Data, params: URLSearchParams
   let year: number | null = null;
   let yearDongs: Record<string, Dong> | null = null;
   let yearInfos: YearInfo[] = [];
-  const srcOf = (code: string): Dong | null => (year ? yearDongs?.[code] ?? null : data.dongs[code] ?? null);
+  const srcOf = (code: string): Dong | null => yearDongs?.[code] ?? null;
+  // 시간대: [시작, 끝) 시각. 끝이 시작보다 작거나 같으면 자정을 넘는다. 기본 = 밤 22~06시
+  let range: [number, number] = [22, 6];
+  const rangeHours = ([a, b]: [number, number]) => {
+    const out: number[] = [];
+    for (let h = a; out.length < 24; h = (h + 1) % 24) { if (out.length && h === b % 24) break; out.push(h); }
+    return out;
+  };
+  const isNight = () => range[0] === 22 && range[1] === 6;
+  const two = (h: number) => String(h).padStart(2, "0");
+  const rangeLabel = () => (range[0] === 0 && range[1] === 24 ? "하루 전체" : `${two(range[0])}시~${two(range[1] % 24 === 0 ? 24 : range[1])}시`);
   const periodLabel = () => {
-    if (!year) return st.month === "all" ? `${data.meta.period.start} ~ ${data.meta.period.end} 밤 (${data.meta.period.nights}일)` : `${st.month.replace("-", "년 ")}월`;
+    if (!year) return "";
     const y = yearInfos.find((x) => x.year === year);
     return y ? `${year}년 · ${y.start} ~ ${y.end} 밤 ${y.nights}일${y.partial ? " (일부 기간)" : ""}` : `${year}년`;
   };
@@ -131,14 +145,19 @@ export function renderMap(root: HTMLElement, data: Data, params: URLSearchParams
 
   const valueOf = (d: Dong | null): number | null => {
     if (!d) return null;
-    if (st.month !== "all") return d.months?.[st.month]?.l_night ?? null;
-    if (st.hour !== "all") return d.by_hour?.[String(st.hour)] ?? null;
-    return d.l_night;
+    if (isNight()) return d.l_night ?? null;          // 기본 밤 지표(이상치 제거·유효한 밤 기준)
+    const hs = rangeHours(range).map((h) => d.by_hour24?.[h]).filter((v): v is number => v != null);
+    if (!d.by_hour24 || hs.length < Math.ceil(rangeHours(range).length / 2)) return null;
+    return 10 * Math.log10(hs.reduce((a, v) => a + 10 ** (v / 10), 0) / hs.length);   // 시각별 값의 에너지 평균
   };
 
   const top = () => {
     const vs = Object.keys(data.dongs).map((c) => ({ d: srcOf(c) ?? data.dongs[c], v: valueOf(srcOf(c)) })).filter((x) => x.v != null) as { d: Dong; v: number }[];
     vs.sort((a, b) => a.v - b.v);
+    const med = vs.length ? vs[Math.floor(vs.length / 2)].v : null;
+    const w = root.querySelector("#intro-what"), m = root.querySelector("#intro-med");
+    if (w && year) w.innerHTML = `<b>${year}년</b> 서울 행정동 ${vs.length}곳의 <b>${rangeLabel()}</b> 바깥 소음(시간 평균)입니다. 동을 누르거나 위에서 검색하면 동네 리포트가 열립니다.`;
+    if (m) m.textContent = fmt(med, 1, "dB");
     const li = (x: { d: Dong; v: number }) => `<li><button type="button" class="link" data-code="${x.d.code}">${x.d.gu} ${x.d.name}</button> ${x.v.toFixed(1)}dB <small>센서 ${x.d.n_sensors}</small></li>`;
     const q = root.querySelector("#top-q"), l = root.querySelector("#top-l");
     if (q) q.innerHTML = vs.slice(0, 5).map(li).join("");
@@ -158,15 +177,16 @@ export function renderMap(root: HTMLElement, data: Data, params: URLSearchParams
   const panel = root.querySelector<HTMLElement>("#panel")!;
   const select = (code: string, fly = false) => {
     const d = data.dongs[code];
-    if (!d) return;
+    if (!d || !year) return;
     st.selected = code;
     history.replaceState(null, "", `#/map?d=${code}`);
     map.setFilter("sel", ["==", ["get", "code"], code]);
     const fp = document.getElementById("foot-period");
     if (fp) fp.textContent = periodLabel();
-    const yd = year ? yearDongs?.[code] : null;
-    const shown: Dong = year ? { ...d, ...(yd ?? { l_night: null }), pattern: d.pattern, report: null } as Dong : d;
-    renderReport(panel, data, shown, { onCompare, year, periodLabel: periodLabel() });
+    const yd = yearDongs?.[code];
+    const shown = { ...d, ...(yd ?? { l_night: null, pattern: undefined }), report: null } as Dong;
+    renderReport(panel, data, shown, { onCompare, year, periodLabel: periodLabel(),
+      range: isNight() ? undefined : { label: rangeLabel(), value: valueOf(yd ?? null) } });
     if (fly) {
       const f = data.geo.features.find((x) => (x.properties as any).code === code);
       if (f) {
@@ -216,7 +236,9 @@ export function renderMap(root: HTMLElement, data: Data, params: URLSearchParams
   let tagTimer = 0;
   const scheduleTag = () => { clearTimeout(tagTimer); tagTimer = window.setTimeout(tagBuildings, 150); };
   // 배경 타일을 다 받을 때까지 기다리지 않고, 스타일만 준비되면 바로 색칠
+  let styleReady = false;
   map.once("style.load", () => {
+    styleReady = true;
     // 배경지도의 글자·도로 레이어는 우리 색칠 위로 오도록 첫 symbol 레이어 앞에 끼운다
     const firstSymbol = map.getStyle().layers.find((l) => l.type === "symbol")?.id;
     // 일반 지도의 그림 레이어(도로·건물·물 등). 위성 모드에서는 숨기고 지명 글자(symbol)만 남긴다
@@ -267,51 +289,41 @@ export function renderMap(root: HTMLElement, data: Data, params: URLSearchParams
     map.on("click", "fill", (e) => { const f = e.features?.[0]; if (f) select((f.properties as any).code); });
   });
 
-  // 컨트롤
-  const hour = root.querySelector<HTMLInputElement>("#hour")!;
+  // 컨트롤: 연도 + 시간대
   const hlabel = root.querySelector<HTMLElement>("#hlabel")!;
-  const monthSel = root.querySelector<HTMLSelectElement>("#month")!;
-  const play = root.querySelector<HTMLButtonElement>("#play")!;
-  const setHour = (i: number) => {
-    hour.value = String(i);
-    st.hour = i === 0 ? "all" : HOURS[i - 1];
-    hlabel.textContent = st.hour === "all" ? "밤 전체" : `${st.hour}시~${(st.hour + 1) % 24}시`;
+  const yearSel = root.querySelector<HTMLSelectElement>("#month")!;
+  const h0 = root.querySelector<HTMLSelectElement>("#h0")!;
+  const h1 = root.querySelector<HTMLSelectElement>("#h1")!;
+  const presets = [...root.querySelectorAll<HTMLButtonElement>(".presets button")];
+  const refresh = () => {
     paint();
+    const fp = document.getElementById("foot-period");
+    if (fp) fp.textContent = periodLabel();
+    if (st.selected) select(st.selected);
   };
-  hour.addEventListener("input", () => setHour(+hour.value));
+  const setRange = (a: number, b: number) => {
+    range = [a, b];
+    h0.value = String(a); h1.value = String(b === 0 ? 24 : b);
+    hlabel.textContent = rangeLabel() === "하루 전체" ? "하루 전체 (0~24시)" : rangeLabel();
+    presets.forEach((p) => p.setAttribute("aria-pressed", String(p.dataset.r === `${a},${b}`)));
+    refresh();
+  };
+  h0.addEventListener("change", () => setRange(+h0.value, +h1.value));
+  h1.addEventListener("change", () => setRange(+h0.value, +h1.value));
+  presets.forEach((p) => p.addEventListener("click", () => { const [a, b] = p.dataset.r!.split(",").map(Number); setRange(a, b); }));
+  const loadYearData = async (y: number) => {
+    year = y;
+    yearDongs = await loadYear(y);
+    if (styleReady) refresh();
+  };
   loadYearsIndex().then((ys) => {
     yearInfos = ys;
-    if (!ys.length) { root.querySelector("#yeargroup")?.remove(); return; }
-    root.querySelector("#yeargroup")!.innerHTML = [...ys].reverse().map((y) =>
-      `<option value="y:${y.year}">${y.year}년${y.partial ? ` (일부 · 밤 ${y.nights}일)` : ""}</option>`).join("");
+    yearSel.innerHTML = [...ys].reverse().map((y) => `<option value="${y.year}">${y.year}년${y.partial ? ` (일부 · 밤 ${y.nights}일)` : ""}</option>`).join("");
+    const want = Number(params.get("y")) || ys[ys.length - 1]?.year;
+    if (want) { yearSel.value = String(want); loadYearData(want); }
   });
-  monthSel.addEventListener("change", async () => {
-    if (monthSel.value.startsWith("y:")) {
-      year = +monthSel.value.slice(2);
-      yearDongs = await loadYear(year);
-      st.month = "all";
-      hour.disabled = play.disabled = false;
-      paint();
-      document.getElementById("foot-period")!.textContent = periodLabel();
-      if (st.selected) select(st.selected);
-      return;
-    }
-    year = null; yearDongs = null;
-    st.month = monthSel.value;
-    const monthly = st.month !== "all";
-    hour.disabled = play.disabled = monthly;
-    if (monthly) { stop(); setHour(0); hlabel.textContent = "밤 전체 (월별 보기에서는 시간 선택 없음)"; }
-    paint();
-    document.getElementById("foot-period")!.textContent = periodLabel();
-    if (st.selected) select(st.selected);
-  });
-  const stop = () => { if (st.playing) { clearInterval(st.playing); st.playing = null; } play.textContent = "▶"; play.setAttribute("aria-pressed", "false"); };
-  play.addEventListener("click", () => {
-    if (st.playing) return stop();
-    play.textContent = "❚❚"; play.setAttribute("aria-pressed", "true");
-    let i = +hour.value; if (i === 0) i = 0;
-    st.playing = window.setInterval(() => { i = i >= 8 ? 1 : i + 1; setHour(i); }, 1100);
-  });
+  yearSel.addEventListener("change", () => loadYearData(+yearSel.value));
+  const stop = () => {};
   // 배경 지도 전환 + 색 진하기
   const bmNormal = root.querySelector<HTMLButtonElement>("#bm-normal")!;
   const bmSat = root.querySelector<HTMLButtonElement>("#bm-sat")!;

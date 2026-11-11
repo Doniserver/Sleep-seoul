@@ -30,6 +30,7 @@ import numpy as np
 import pandas as pd
 
 from pipeline import aggregate as A
+from pipeline import classify as K
 from pipeline import clean as CL
 from pipeline import config as C
 from pipeline import sensors as S
@@ -212,7 +213,8 @@ def summarize_year(year: int, df: pd.DataFrame, feats) -> dict:
     basis = A.choose_basis(sensors)
     dongs = A.dong_table(night, full, basis, feats)
     calendar = {c: r.pop("nights", {}) for c, r in dongs.items()}
-    keep = ["code", "name", "gu", "n_sensors", "basis", "l_night", "by_hour", "heatmap", "score",
+    patterns = K.classify(dongs)          # 그 해의 7×24 모양으로 소음 패턴 분류
+    keep = ["code", "name", "gu", "n_sensors", "basis", "l_night", "by_hour", "by_hour24", "heatmap", "score", "pattern",
             "peaks_per_night", "lux", "weekend_effect", "quiet_ratio", "months"]
     slim = {c: {k: r[k] for k in keep if k in r} for c, r in dongs.items()}
     nds = night["nd"].dropna()
@@ -227,6 +229,7 @@ def summarize_year(year: int, df: pd.DataFrame, feats) -> dict:
         "sensors_used": int(len(basis)),
         "dongs_with_data": len(vals),
         "seoul_median": A._r(float(np.median(vals))) if vals else None,
+        "patterns": [{k: p[k] for k in ("name", "desc", "n", "level_db")} for p in patterns],
         "excluded_nights": sum(1 for x in log if x["type"] == "night"),
         "excluded_sensors": sum(1 for x in log if x["type"] == "sensor"),
         "sources": [p.name for p in raw_sources(year)] + (["data/hourly"] if list(C.HOURLY.glob(f"{year}-*.parquet")) else []),

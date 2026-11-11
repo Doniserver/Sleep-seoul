@@ -14,6 +14,8 @@ export interface Dong {
   weekend_effect?: number | null;
   score?: number | null;
   by_hour?: Record<string, number | null>;
+  /** 0~23시 시각별 값 (낮 포함) */
+  by_hour24?: (number | null)[];
   heatmap?: (number | null)[][];
   quiet_ratio?: number | null;
   months?: Record<string, MonthStat>;

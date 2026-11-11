@@ -69,6 +69,8 @@ def dong_table(night: pd.DataFrame, full: pd.DataFrame, basis: pd.DataFrame, fea
     fb["wd"] = fb["hs"].dt.day_of_week
     fb["h"] = fb["hs"].dt.hour
     hm = fb.groupby(["adm", "sn", "wd", "h"])["e"].mean().pipe(M.from_energy).groupby(["adm", "wd", "h"]).median()
+    # 하루 24시간 시각별(낮 포함): 센서별 그 시각 에너지 평균 → 동 중앙값. 화면의 '시간대 선택'에 쓴다
+    by_hour24 = fb.groupby(["adm", "sn", "h"])["e"].mean().pipe(M.from_energy).groupby(["adm", "h"]).median().unstack()
 
     # 밤별(달력): 센서별 밤 L → 동 중앙값
     nl = nb.groupby(["adm", "sn", "nd"])["e"].mean().pipe(M.from_energy).groupby(["adm", "nd"]).median()
@@ -97,6 +99,8 @@ def dong_table(night: pd.DataFrame, full: pd.DataFrame, basis: pd.DataFrame, fea
                                    r["peaks_per_night"] if r["peaks_per_night"] is not None else float("nan"))
         if code in by_hour.index:
             r["by_hour"] = {int(h): _r(v) for h, v in by_hour.loc[code].items() if pd.notna(v)}
+        if code in by_hour24.index:
+            r["by_hour24"] = [_r(by_hour24.loc[code].get(h, np.nan)) for h in range(24)]
         if code in hm.index.get_level_values(0):
             m = hm.loc[code].unstack().reindex(index=range(7), columns=range(24))
             r["heatmap"] = [[_r(v) for v in row] for row in m.values]

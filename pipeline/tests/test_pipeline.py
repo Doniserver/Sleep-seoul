@@ -76,3 +76,18 @@ def test_choose_basis_prefers_residential():
 def test_dong_stem(adm, bjd):
     from pipeline.fetch_buildings import stem
     assert stem(adm) == bjd
+
+
+def test_dong_table_has_24_hour_profile():
+    # 한 동·센서 하나, 시각마다 값 = 30 + 시각 → by_hour24[h] == 30 + h (낮 포함)
+    def v(t):
+        hs = t - pd.Timedelta(hours=1, minutes=7)
+        return 30.0 + hs.hour
+    df = _make({"s": v}, days=4, start="2026-10-05 12:00")
+    night, full, st, _ = CL.clean(df)
+    sm = A.sensor_metrics(night)
+    sensors = st.join(sm).assign(rgn="residential_area", adm="X")
+    basis = A.choose_basis(sensors)
+    feats = [{"properties": {"adm_cd2": "X", "adm_nm": "서울특별시 가구 가동", "sggnm": "가구"}}]
+    rec = A.dong_table(night, full, basis, feats)["X"]
+    assert rec["by_hour24"][3] == pytest.approx(33.0) and rec["by_hour24"][15] == pytest.approx(45.0)

@@ -18,7 +18,7 @@ function scoreWord(s: number | null | undefined) {
   return s >= 85 ? "아주 좋음" : s >= 65 ? "좋음" : s >= 40 ? "보통" : "나쁨";
 }
 
-export async function renderReport(el: HTMLElement, data: Data, d: Dong, opts: { onCompare?: (code: string) => void; year?: number | null; periodLabel?: string } = {}) {
+export async function renderReport(el: HTMLElement, data: Data, d: Dong, opts: { onCompare?: (code: string) => void; year?: number | null; periodLabel?: string; range?: { label: string; value: number | null } } = {}) {
   const t = data.meta.thresholds;
   const pat = data.patterns.find((p) => p.name === d.pattern);
   if (d.l_night == null) {
@@ -33,6 +33,8 @@ export async function renderReport(el: HTMLElement, data: Data, d: Dong, opts: {
       ${pat ? `<span class="badge" title="${esc(pat.desc)}">${esc(pat.name)}</span>` : ""}
     </div>
     ${opts.periodLabel ? `<p class="period">기간: ${esc(opts.periodLabel)}</p>` : ""}
+    ${opts.range ? `<div class="rangebox"><span class="chip sm" style="background:${colorFor(opts.range.value)}"></span><b>${fmt(opts.range.value)}</b><small>dB</small>
+      <span>선택한 시간대 <b>${esc(opts.range.label)}</b> 평균 소음 (시각별 값의 에너지 평균)</span></div>` : ""}
     <div class="big">
       <div><span class="chip" style="background:${colorFor(d.l_night)}" aria-hidden="true"></span><span class="num">${fmt(d.l_night)}</span><span class="unit">dB</span>
         <p class="lbl">밤(22~06시) 평균 소음 · 에너지 평균</p></div>

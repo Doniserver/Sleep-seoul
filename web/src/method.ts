@@ -1,7 +1,7 @@
 import type { Data } from "./data";
 
 export function renderMethod(root: HTMLElement, data: Data) {
-  const t = data.meta.thresholds, c = data.meta.counts, p = data.meta.period;
+  const t = data.meta.thresholds;
   const pats = data.patterns.map((x) => `<li><b>${x.name}</b> (${x.n}개 동) — ${x.desc}</li>`).join("");
   root.innerHTML = `
   <article class="method">
@@ -14,7 +14,8 @@ export function renderMethod(root: HTMLElement, data: Data) {
       <li>그래서 이 값은 <b>동네 바깥 환경</b>입니다. 창문을 닫은 집 안 소음이나 층간소음 측정값이 아닙니다.</li>
       <li>S-DoT는 <b>간이측정기</b>(성능인증 1등급)입니다. 법정 소음 측정이 아니라 동네끼리 견주는 <b>비교용 지표</b>로 봐 주세요.</li>
       <li>센서가 잴 수 있는 가장 작은 값은 ${t.noise_floor}dB입니다. ${t.noise_floor}dB로 나온 곳은 실제로 더 조용할 수 있습니다.</li>
-      <li>이번 기간: <b>${p.start} ~ ${p.end}</b> 밤 ${p.nights}개. 센서 ${c.sensors_total}개 중 ${c.sensors_used}개를 동네 대표값에 썼습니다.</li>
+      <li>기간: <b>2020~2025년, 연도별</b>로 따로 계산합니다(2020년은 4월부터). 진행 중인 해는 넣지 않습니다. 연도마다 쓴 센서·밤 수는 연도 선택 목록과 각 화면 하단에 나옵니다.</li>
+      <li><b>시간대 선택</b>: 기본은 밤 22~06시 지표입니다. 다른 시간대를 고르면 그 시각들의 1년 평균(시각별 값의 에너지 평균)을 보여 줍니다. 고장·결측 센서 제외와 이상치 밤 제거는 시각별 값에도 같이 적용됩니다.</li>
     </ul>
 
     <h3>2. 밤 소음 계산</h3>
@@ -28,7 +29,7 @@ export function renderMethod(root: HTMLElement, data: Data) {
     <h3>3. 판단 기준선</h3>
     <ul>
       <li>WHO 야간 목표: 집 밖 연평균 ${t.who_target}dB · WHO 도로교통 야간 권고: ${t.who_road}dB · WHO 중간 목표: ${t.who_interim}dB.</li>
-      <li>WHO 기준은 <b>1년 평균</b>입니다. 이 사이트의 기간은 아직 ${p.nights}일이라 계절에 따라 달라질 수 있습니다.</li>
+      <li>WHO 기준은 <b>1년 평균</b>입니다. 연도별 값도 1년 밤의 평균이라 같은 기준으로 견줄 수 있습니다(2020년은 4~12월만).</li>
     </ul>
 
     <h3>4. 보조 지표</h3>
@@ -48,9 +49,9 @@ export function renderMethod(root: HTMLElement, data: Data) {
 
     <h3>6. 데이터 정리 (자동)</h3>
     <ul>
-      <li>밤 시간 결측률이 30%를 넘는 센서, 소음 값이 기간 내내 똑같은 센서(고장 의심)는 뺍니다. 이번 기간 ${c.excluded_sensors}개.</li>
+      <li>밤 시간 결측률이 30%를 넘는 센서, 소음 값이 기간 내내 똑같은 센서(고장 의심)는 뺍니다.</li>
       <li>하룻밤 8시간 중 6시간 이상 값이 있는 밤만 씁니다.</li>
-      <li><b>이상치 제거</b>: 센서마다 평소 밤(중앙값)보다 8dB 이상 높은 밤은 공사·축제·일시 고장으로 보고 기본 통계에서 뺍니다. 이번 기간 ${c.excluded_nights}개 밤. 뺀 내역은 <code>excluded.json</code>에 모두 남깁니다.</li>
+      <li><b>이상치 제거</b>: 센서마다 평소 밤(중앙값)보다 8dB 이상 높은 밤은 공사·축제·일시 고장으로 보고 기본 통계에서 뺍니다.</li>
     </ul>
 
     <h3>7. 소음 패턴 자동 분류</h3>
