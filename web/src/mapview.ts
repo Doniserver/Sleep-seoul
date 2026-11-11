@@ -162,6 +162,8 @@ export function renderMap(root: HTMLElement, data: Data, params: URLSearchParams
     st.selected = code;
     history.replaceState(null, "", `#/map?d=${code}`);
     map.setFilter("sel", ["==", ["get", "code"], code]);
+    const fp = document.getElementById("foot-period");
+    if (fp) fp.textContent = periodLabel();
     const yd = year ? yearDongs?.[code] : null;
     const shown: Dong = year ? { ...d, ...(yd ?? { l_night: null }), pattern: d.pattern, report: null } as Dong : d;
     renderReport(panel, data, shown, { onCompare, year, periodLabel: periodLabel() });
@@ -290,6 +292,7 @@ export function renderMap(root: HTMLElement, data: Data, params: URLSearchParams
       st.month = "all";
       hour.disabled = play.disabled = false;
       paint();
+      document.getElementById("foot-period")!.textContent = periodLabel();
       if (st.selected) select(st.selected);
       return;
     }
@@ -299,6 +302,7 @@ export function renderMap(root: HTMLElement, data: Data, params: URLSearchParams
     hour.disabled = play.disabled = monthly;
     if (monthly) { stop(); setHour(0); hlabel.textContent = "밤 전체 (월별 보기에서는 시간 선택 없음)"; }
     paint();
+    document.getElementById("foot-period")!.textContent = periodLabel();
     if (st.selected) select(st.selected);
   });
   const stop = () => { if (st.playing) { clearInterval(st.playing); st.playing = null; } play.textContent = "▶"; play.setAttribute("aria-pressed", "false"); };

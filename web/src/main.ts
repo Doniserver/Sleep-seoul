@@ -12,7 +12,7 @@ let compareA: string | null = null;
 function footerHtml(d: Data) {
   const m = d.meta;
   return `<p><b>출처</b> · ${m.sources.map((s) => `<a href="${s.url}" target="_blank" rel="noopener">${s.name}</a> (${s.by})`).join(" · ")} · 배경지도 © OpenStreetMap · OpenFreeMap · 위성 영상 © Esri, Maxar, Earthstar Geographics</p>
-  <p><b>데이터 기간</b> ${m.period.start} ~ ${m.period.end} 밤 (${m.period.nights}일) · <b>생성</b> ${m.generated_at.replace("T", " ")} KST ·
+  <p><b>데이터 기간</b> <span id="foot-period">${m.period.start} ~ ${m.period.end} 밤 (${m.period.nights}일)</span> · <b>생성</b> ${m.generated_at.replace("T", " ")} KST ·
   소음은 길가 센서로 잰 동네 바깥 환경이며 간이측정기 기반 비교용 지표입니다. 층간소음 등급은 건축 연식 기준 추정입니다.</p>`;
 }
 

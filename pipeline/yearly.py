@@ -38,7 +38,10 @@ YEARS_RAW = C.DERIVED / "years"
 OUT = C.WEB_DATA / "years"
 FIRST_YEAR = 2020
 
-# 머리글 이름이 연도마다 조금씩 다를 수 있어 '포함하는 글자'로 찾는다 (실제 파일로 확인 후 조정)
+# 머리글 이름이 연도·파일마다 다르다(실제 zip 6개로 확인, 2026-11).
+#  새 형식(2021-11~): 측정시간, 지역, 자치구, 행정동, 소음 평균/최대, 조도 평균
+#  옛 형식(2020-04~2021-10): 시리얼, 소음(dB) 값 하나, 조도(lux), 등록일자/등록 일자. 지역·행정동 없음.
+#  옛 형식의 '전송시간'은 숫자가 깨져 있어(2.02E+11) 등록일자를 시간으로 쓴다.
 COL_RULES = {
     "sn": ["시리얼"],
     "ts": ["측정시간"],
@@ -49,38 +52,107 @@ COL_RULES = {
     "nis_max": ["소음 최대", "소음최대"],
     "lux_avg": ["조도 평균", "조도평균"],
 }
+OLD_RULES = {
+    "sn": ["시리얼"],
+    "ts": ["등록일자", "등록일시", "측정시간"],   # 앞에 있는 이름을 먼저 쓴다
+    "nis_avg": ["소음(dB)"],
+    "lux_avg": ["조도(lux)"],
+}
 
 
-def match_columns(header: list[str]) -> dict[str, str]:
-    """원본 머리글 → 표준 이름. 필요한 열을 못 찾으면 KeyError."""
+def _norm(h: str) -> str:
+    """머리글 비교용: BOM·띄어쓰기 제거, ㏈→dB (실제 파일에 '소음 (㏈)', '등록 일자' 같은 변형이 있음)"""
+    return h.replace("\ufeff", "").replace(" ", "").replace("㏈", "dB").strip().strip('"')
+
+
+def _find(header: list[str], rules: dict[str, list[str]]) -> dict[str, str]:
+    normed = [(_norm(h), h) for h in header]
     out = {}
-    for std, keys in COL_RULES.items():
-        hit = next((h for h in header if any(k in h.replace("﻿", "") for k in keys)), None)
+    for std, keys in rules.items():
+        hit = None
+        for k in keys:                       # 키 순서가 우선순위
+            k = _norm(k)
+            hit = next((h for n, h in normed if k in n and h not in out), None)
+            if hit:
+                break
         if hit is None:
             raise KeyError(f"'{std}' 열을 찾지 못함. 머리글: {header[:15]}")
         out[hit] = std
     return out
 
 
+def match_columns(header: list[str]) -> dict[str, str]:
+    """원본 머리글 → 표준 이름 (새 형식). 필요한 열을 못 찾으면 KeyError."""
+    return _find(header, COL_RULES)
+
+
+def detect_format(header: list[str]) -> str:
+    return "new" if any("소음평균" in _norm(h) for h in header) else "old"
+
+
 def _read_csv_bytes(raw: bytes) -> pd.DataFrame:
-    for enc in ("cp949", "utf-8-sig"):
+    first = raw.split(b"\n", 1)[0]          # 첫 줄만 (중간에서 자르면 한글이 깨질 수 있음)
+    enc, errors = None, "strict"
+    for e in ("cp949", "utf-8-sig"):
         try:
-            head = raw[:4000].decode(enc).splitlines()[0]
+            head = first.decode(e)
+            enc = e
             break
         except UnicodeDecodeError:
             continue
-    else:
-        raise UnicodeDecodeError("csv", raw[:10], 0, 1, "cp949/utf-8 모두 실패")
+    if enc is None:                          # 둘 다 안 되면 깨진 글자만 바꾸고 계속 (숫자 열은 영향 없음)
+        enc, errors = "cp949", "replace"
+        head = first.decode(enc, errors="replace")
     header = [h.strip().strip('"') for h in head.split(",")]
-    cmap = match_columns(header)
-    df = pd.read_csv(io.BytesIO(raw), encoding=enc, usecols=list(cmap), dtype=str, index_col=False)
+    fmt = detect_format(header)
+    cmap = _find(header, COL_RULES if fmt == "new" else OLD_RULES)
+    if fmt == "new":
+        # 2023년 파일은 측정시간이 12시간제(1~12시, 오전·오후 없음)라 등록일시(24시간제)도 함께 읽어 둔다
+        reg = next((h for h in header if _norm(h) in ("등록일시", "등록일자") and h not in cmap), None)
+        if reg:
+            cmap[reg] = "reg"
+    df = pd.read_csv(io.BytesIO(raw), encoding=enc, encoding_errors=errors, usecols=list(cmap), dtype=str, index_col=False)
     df = df.rename(columns=cmap)
-    df["ts"] = pd.to_datetime(df["ts"].str.replace("_", " ", regex=False), errors="coerce")
+    if fmt == "old":
+        for c in ["rgn", "cgg", "dong"]:
+            df[c] = pd.NA
+        df["nis_max"] = np.nan
+    t = df["ts"].astype("string").str.replace("_", " ", regex=False).str.replace(".", "-", regex=False)
+    df["ts"] = pd.to_datetime(t, format="mixed", errors="coerce")
+    if "reg" in df:
+        reg = pd.to_datetime(df.pop("reg").astype("string"), format="mixed", errors="coerce")
+        if df["ts"].dt.hour.max() <= 12 and reg.notna().mean() > 0.9 and reg.dt.hour.max() > 12:
+            df["ts"] = reg                        # 12시간제 측정시간 대신 등록일시(측정 1분 뒤 기록)를 쓴다
     for c in ["nis_avg", "nis_max", "lux_avg"]:
         df[c] = pd.to_numeric(df[c], errors="coerce").astype("float32")
     for c in ["sn", "rgn", "cgg", "dong"]:
         df[c] = df[c].astype("string").str.strip()
-    return df.dropna(subset=["ts", "sn"])
+    df["fmt"] = fmt
+    return df.dropna(subset=["ts", "sn"])[["sn", "ts", "rgn", "cgg", "dong", "nis_avg", "nis_max", "lux_avg", "fmt"]]
+
+
+def to_hourly(df: pd.DataFrame) -> pd.DataFrame:
+    """한 시간에 여러 번 찍힌 기록(2023년 등)을 센서·시간당 한 행으로: 소음 평균은 에너지 평균, 최대는 최댓값, 조도는 중앙값.
+    시간 표기는 지금 자료와 같게 '구간 끝 정각 + 7분'으로 맞춘다."""
+    hs = df["ts"].dt.round("h")      # 07분·03분·정각 표기를 모두 가장 가까운 정각(구간 끝)으로
+    e = np.power(10.0, df["nis_avg"].astype("float64") / 10.0)
+    g = df.assign(_hs=hs, _e=e).groupby(["sn", "_hs"], sort=False)
+    out = g.agg(rgn=("rgn", "last"), cgg=("cgg", "last"), dong=("dong", "last"), _e=("_e", "mean"),
+                nis_max=("nis_max", "max"), lux_avg=("lux_avg", "median"), fmt=("fmt", "last")).reset_index()
+    out["nis_avg"] = (10 * np.log10(out.pop("_e"))).astype("float32")
+    out["ts"] = out.pop("_hs") + pd.Timedelta(minutes=7)
+    return out
+
+
+def attach_sensor_attrs(df: pd.DataFrame, ref: pd.DataFrame) -> pd.DataFrame:
+    """옛 형식(지역·자치구·행정동 없음)에 같은 시리얼의 다른 연도 값을 붙인다."""
+    if ref.empty:
+        return df
+    m = ref.dropna(subset=["rgn"]).sort_values("ts").groupby("sn")[["rgn", "cgg", "dong"]].last()
+    miss = df["rgn"].isna()
+    for c in ["rgn", "cgg", "dong"]:
+        df.loc[miss, c] = df.loc[miss, "sn"].map(m[c])
+    return df
 
 
 def raw_sources(year: int) -> list[Path]:
@@ -107,12 +179,26 @@ def collect_year(year: int) -> pd.DataFrame | None:
         parts.append(pd.read_parquet(f))
     if not parts:
         return None
-    df = pd.concat(parts, ignore_index=True).drop_duplicates(subset=["sn", "ts"], keep="last")
+    df = pd.concat(parts, ignore_index=True)
+    if "fmt" not in df:
+        df["fmt"] = "new"
+    df["fmt"] = df["fmt"].fillna("new")
+    df = to_hourly(df)
+    if df["rgn"].isna().any():
+        df = attach_sensor_attrs(df, sensor_reference())
+        print(f"[yearly] {year}: 옛 형식 {int((df['fmt'] == 'old').sum()):,}행, 지역 구분을 찾지 못한 행 {int(df['rgn'].isna().sum()):,}", flush=True)
     YEARS_RAW.mkdir(parents=True, exist_ok=True)
     for c in ["rgn", "cgg", "dong"]:
         df[c] = df[c].astype("category")
     df.to_parquet(YEARS_RAW / f"{year}.parquet", compression="zstd", index=False)
     return df
+
+
+def sensor_reference() -> pd.DataFrame:
+    """시리얼 → 지역·자치구·행정동 참조표: 지금 시간별 자료 + 이미 만든 연도 중간 파일."""
+    parts = [pd.read_parquet(f, columns=["sn", "ts", "rgn", "cgg", "dong"]) for f in sorted(C.HOURLY.glob("*.parquet"))[-14:]]
+    parts += [pd.read_parquet(f, columns=["sn", "ts", "rgn", "cgg", "dong"]) for f in sorted(YEARS_RAW.glob("*.parquet"))]
+    return pd.concat(parts, ignore_index=True) if parts else pd.DataFrame(columns=["sn", "ts", "rgn", "cgg", "dong"])
 
 
 def summarize_year(year: int, df: pd.DataFrame, feats) -> dict:
@@ -137,6 +223,7 @@ def summarize_year(year: int, df: pd.DataFrame, feats) -> dict:
         "end": nds.max().date().isoformat() if len(nds) else None,
         "nights": int(nds.nunique()),
         "partial": bool(nds.nunique() < 330),
+        "old_format_share": round(float((df.get("fmt", pd.Series(dtype=str)) == "old").mean()), 3) if "fmt" in df else 0.0,
         "sensors_used": int(len(basis)),
         "dongs_with_data": len(vals),
         "seoul_median": A._r(float(np.median(vals))) if vals else None,
@@ -202,7 +289,7 @@ def run(years: list[int] | None = None, recollect: bool = False):
         m = re.match(r"(\d{4})", f.stem)
         if m and int(m.group(1)) >= this_year():
             f.unlink()
-    for y in years:
+    for y in sorted(years, reverse=True):     # 새 연도부터: 옛 형식에 붙일 센서 정보를 먼저 확보
         cache = YEARS_RAW / f"{y}.parquet"
         newer_raw = any(p.stat().st_mtime > cache.stat().st_mtime for p in raw_sources(y)) if cache.exists() else True
         df = pd.read_parquet(cache) if cache.exists() and not recollect and not newer_raw and y < max(years) else collect_year(y)
@@ -210,13 +297,14 @@ def run(years: list[int] | None = None, recollect: bool = False):
             print(f"[yearly] {y}: 자료 없음")
             continue
         res = summarize_year(y, df, feats)
-        if y in index and index[y].get("nights", 0) > res["info"]["nights"]:
+        if not recollect and y in index and index[y].get("nights", 0) > res["info"]["nights"]:
             # 예: 자동 갱신(매일 받은 자료만)이 연도 zip으로 만든 더 완전한 결과를 덮어쓰지 않게
             print(f"[yearly] {y}: 기존 결과(밤 {index[y]['nights']}일)가 더 완전해서 유지")
             continue
         _dump(OUT / f"{y}.json", res["dongs"])
         _dump(OUT / f"{y}_calendar.json", compact_calendar(res["calendar"], res["info"]))
         index[y] = res["info"]
+        _dump(index_path, [index[k] for k in sorted(index)])   # 중간에 멈춰도 끝난 해는 남게
         print(f"[yearly] {y}: 밤 {res['info']['nights']}일, 동 {res['info']['dongs_with_data']}곳, 서울 중앙값 {res['info']['seoul_median']}dB")
     _dump(index_path, [index[k] for k in sorted(index)])
     # 동별 연도 추이

@@ -18,7 +18,8 @@ def sensor_metrics(night: pd.DataFrame) -> pd.DataFrame:
     out = pd.DataFrame({
         "l_night": g["e"].mean().pipe(M.from_energy),
         "nights": g["nd"].nunique(),
-        "peaks": g["nis_max"].apply(lambda x: int((x > C.PEAK_DB).sum())),
+        # 최대값이 없는 자료(2020~2021 옛 형식)는 피크를 0이 아니라 '없음'으로
+        "peaks": g["nis_max"].apply(lambda x: float((x > C.PEAK_DB).sum()) if x.notna().any() else np.nan),
         "lux": g["lux_avg"].median(),
     })
     out["peaks_per_night"] = out["peaks"] / out["nights"]

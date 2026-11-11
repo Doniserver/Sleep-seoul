@@ -40,3 +40,47 @@ def test_compact_calendar_roundtrip():
     cal = {"A": {"2026-01-01": 40.0, "2026-01-03": 45.5}, "B": {}}
     out = compact_calendar(cal, {"start": "2026-01-01", "end": "2026-01-03"})
     assert out["days"] == 3 and out["dongs"]["A"] == [40.0, None, 45.5] and "B" not in out["dongs"]
+
+
+OLD_HEADER = ["기관 명", "모델명", "시리얼", "구분", "기온(℃)", "조도(lux)", "소음(dB)", "전송시간", "등록 일자"]
+
+
+def test_read_old_format_uses_registration_time_and_single_noise():
+    rows = [",".join(OLD_HEADER), "서울시,SDOT001,S9,1,14,0,46,2.02E+11,2020.4.1 1:00"]
+    df = _read_csv_bytes(("\n".join(rows) + "\n").encode("cp949"))
+    r = df.iloc[0]
+    assert r["fmt"] == "old" and r["nis_avg"] == 46 and pd.isna(r["nis_max"]) and pd.isna(r["rgn"])
+    assert r["ts"] == pd.Timestamp("2020-04-01 01:00")
+
+
+def test_to_hourly_merges_multiple_records_with_energy_mean():
+    import numpy as np
+    from pipeline.yearly import to_hourly
+    df = pd.DataFrame({"sn": ["A", "A"], "ts": pd.to_datetime(["2023-01-01 01:03:03", "2023-01-01 00:58:00"]),
+                       "rgn": ["parks", "parks"], "cgg": ["g", "g"], "dong": ["d", "d"],
+                       "nis_avg": [40.0, 60.0], "nis_max": [45.0, 65.0], "lux_avg": [1.0, 3.0], "fmt": ["new", "new"]})
+    out = to_hourly(df)
+    assert len(out) == 1
+    assert out.iloc[0]["ts"] == pd.Timestamp("2023-01-01 01:07")
+    assert out.iloc[0]["nis_avg"] == pytest.approx(10 * np.log10((1e4 + 1e6) / 2), abs=0.01)
+    assert out.iloc[0]["nis_max"] == 65
+
+
+@pytest.mark.parametrize("hdr,ts_col", [
+    (["기관 명", "시리얼", "조도 (lux)", "소음 (㏈)", "전송시간", "등록 일시"], "등록 일시"),
+    (["기관명", "시리얼", "조도 (lux)", "소음 (dB)", "측정시간", "등록 일시"], "등록 일시"),
+    (["﻿기관 명", "시리얼", "조도(lux)", "소음(dB)", "전송시간", "등록일자", ""], "등록일자"),
+])
+def test_old_header_variants(hdr, ts_col):
+    from pipeline.yearly import OLD_RULES, _find
+    m = _find(hdr, OLD_RULES)
+    assert m[ts_col] == "ts" and "sn" in m.values() and "nis_avg" in m.values() and "lux_avg" in m.values()
+
+
+def test_twelve_hour_measure_time_falls_back_to_registration_time():
+    hdr = HEADER[:-1] + ["등록일시"]
+    rows = [",".join(hdr),
+            'M,S3,2023-01-02_02:07:00,residential_area,G,D,1,0,60,50,2023-01-02 14:07',
+            'M,S3,2023-01-02_12:07:00,residential_area,G,D,1,0,60,40,2023-01-02 0:07']
+    df = _read_csv_bytes(("\n".join(rows) + "\n").encode("cp949"))
+    assert sorted(df["ts"].dt.hour.tolist()) == [0, 14]
