@@ -198,3 +198,10 @@ body[data-route="map"] .foot { padding-top: 8px; }
 .ctrl .basemap { flex-wrap: wrap; }
 .ctrl .basemap button { font-size: 12.5px; padding: 6px 4px; }
 @media (max-width: 900px) { .v3d { position: fixed; } }
+
+/* 보기 방식 3버튼 */
+.ctrl .basemap button { font-size: 13.5px; padding: 8px 4px; }
+.lightopt { display: flex !important; align-items: center; gap: 5px; color: var(--ink-2); font-size: 12.5px; margin-top: -4px; }
+.v3d-back { display: inline-flex; gap: 6px; }
+.v3d-bar .v3d-back button { background: var(--panel-2); color: var(--ink); border-color: var(--line); }
+.v3d-bar .v3d-back button[aria-pressed="true"] { background: var(--accent); color: #111; border-color: var(--accent); }

@@ -68,7 +68,8 @@ export function renderMap(root: HTMLElement, data: Data, params: URLSearchParams
   <div class="mapgrid">
     <section class="mapwrap" aria-label="서울의 밤 지도">
       <div id="v3d" class="v3d" hidden>
-        <div class="v3d-bar"><span id="v3d-title">실사 3D</span><button type="button" id="v3d-close">지도로 돌아가기</button></div>
+        <div class="v3d-bar"><span id="v3d-title">실사 3D</span>
+          <span class="v3d-back" role="group" aria-label="지도 보기 방식"><button type="button" data-view="map">배경지도</button><button type="button" data-view="sat">실사 2D</button><button type="button" data-view="3d" aria-pressed="true">실사 3D</button></span></div>
         <iframe id="v3d-frame" title="브이월드 실사 3D 지도" allow="fullscreen"></iframe>
         <p class="v3d-note">실제 건물 모습은 브이월드(국토교통부) 3D 지도입니다. 선은 고른 동의 경계이고, 소음 값은 건물마다 잰 것이 아니라 동 대표값입니다.</p>
       </div>
@@ -101,12 +102,12 @@ export function renderMap(root: HTMLElement, data: Data, params: URLSearchParams
             <button type="button" data-r="0,24" aria-pressed="false">하루 전체</button>
           </div>
         </fieldset>
-        <div class="row basemap" role="group" aria-label="배경 지도">
-          <span>배경</span>
-          <button type="button" data-bm="dark" aria-pressed="true">어두운 지도</button>
-          <button type="button" data-bm="light" aria-pressed="false">밝은 지도</button>
-          <button type="button" data-bm="sat" aria-pressed="false">항공사진</button>
+        <div class="row basemap" role="group" aria-label="지도 보기 방식">
+          <button type="button" data-view="map" aria-pressed="true">배경지도</button>
+          <button type="button" data-view="sat" aria-pressed="false">실사 2D</button>
+          <button type="button" data-view="3d" aria-pressed="false">실사 3D</button>
         </div>
+        <label class="lightopt"><input type="checkbox" id="bmlight" /> 배경지도를 밝게</label>
         <label class="opacity">색 진하기 <span id="oplabel">80%</span>
           <input type="range" id="op" min="0" max="100" step="5" value="80" aria-describedby="oplabel" />
         </label>
@@ -115,7 +116,6 @@ export function renderMap(root: HTMLElement, data: Data, params: URLSearchParams
           <label><input type="checkbox" id="tsen" /> 센서 위치</label>
           <label><input type="checkbox" id="tbld" /> 층간소음 위험(추정)</label>
         </div>
-        <button type="button" id="real3d" class="real3d">실사 3D로 보기 <small>브이월드</small></button>
         <div class="legend" aria-label="색 범례">
           <div id="nlegend"><p>밤 소음 (dB)</p>
           <ul>${COLORS.map((c, i) => `<li><span style="background:${c}"></span>${LABELS[i]}</li>`).join("")}
@@ -284,7 +284,8 @@ export function renderMap(root: HTMLElement, data: Data, params: URLSearchParams
   yearSel.addEventListener("change", () => loadYearData(+yearSel.value));
   const stop = () => {};
   // 배경 지도 전환 + 색 진하기
-  const bmButtons = [...root.querySelectorAll<HTMLButtonElement>(".basemap button")];
+  const viewButtons = [...root.querySelectorAll<HTMLButtonElement>(".basemap button")];
+  const bmLight = root.querySelector<HTMLInputElement>("#bmlight")!;
   const op = root.querySelector<HTMLInputElement>("#op")!;
   const opLabel = root.querySelector<HTMLElement>("#oplabel")!;
   const applyOpacity = () => {
@@ -298,7 +299,8 @@ export function renderMap(root: HTMLElement, data: Data, params: URLSearchParams
     root.querySelector<HTMLElement>(".legend")!.classList.toggle("dim", off);
   };
   const setBasemap = (mode: Basemap) => {
-    bmButtons.forEach((b) => b.setAttribute("aria-pressed", String(b.dataset.bm === mode)));
+    viewButtons.forEach((b) => b.setAttribute("aria-pressed", String(b.dataset.view === (mode === "sat" ? "sat" : "map"))));
+    bmLight.disabled = mode === "sat";
     if (!map.getLayer("vw-dark")) return;
     for (const m of ["dark", "light", "sat"] as Basemap[]) map.setLayoutProperty(`vw-${m}`, "visibility", m === mode ? "visible" : "none");
     // 밝은 지도·항공사진 위에서는 동 경계를 눈에 띄게, 색은 조금 옅게 해서 바탕이 보이게
@@ -307,7 +309,14 @@ export function renderMap(root: HTMLElement, data: Data, params: URLSearchParams
     op.value = mode === "sat" ? "45" : mode === "light" ? "65" : "80";
     applyOpacity();
   };
-  bmButtons.forEach((b) => b.addEventListener("click", () => setBasemap(b.dataset.bm as Basemap)));
+  // 보기 방식 3가지: 배경지도 / 실사 2D(항공사진) / 실사 3D(브이월드 3D 화면)
+  const setView = (v: string) => {
+    if (v === "3d") { openReal3D(); return; }
+    closeReal3D();
+    setBasemap(v === "sat" ? "sat" : bmLight.checked ? "light" : "dark");
+  };
+  root.querySelectorAll<HTMLButtonElement>("[data-view]").forEach((b) => b.addEventListener("click", () => setView(b.dataset.view!)));
+  bmLight.addEventListener("change", () => setBasemap(bmLight.checked ? "light" : "dark"));
   op.addEventListener("input", applyOpacity);
 
   // 3D 기둥(동 전체를 한 덩어리로 세우는 연출용)
@@ -335,8 +344,7 @@ export function renderMap(root: HTMLElement, data: Data, params: URLSearchParams
     v3dFrame.src = `${import.meta.env.BASE_URL}vworld3d.html?${q}`;
     v3d.hidden = false;
   };
-  root.querySelector<HTMLButtonElement>("#real3d")!.addEventListener("click", openReal3D);
-  root.querySelector<HTMLButtonElement>("#v3d-close")!.addEventListener("click", () => { v3d.hidden = true; v3dFrame.src = "about:blank"; });
+  const closeReal3D = () => { if (!v3d.hidden) { v3d.hidden = true; v3dFrame.src = "about:blank"; } };
   const tsen = root.querySelector<HTMLInputElement>("#tsen")!;
   let sensorYear: number | null = null;
   const showSensors = async () => {
