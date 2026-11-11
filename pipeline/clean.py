@@ -18,6 +18,12 @@ def load_hourly(days: int = 365, end: dt.date | None = None) -> pd.DataFrame:
     first = last - dt.timedelta(days=days - 1)
     use = [f for f in files if first <= dt.date.fromisoformat(f.stem) <= last]
     df = pd.concat([pd.read_parquet(f) for f in use], ignore_index=True)
+    return prepare(df)
+
+
+def prepare(df: pd.DataFrame) -> pd.DataFrame:
+    """시간별 원자료(sn, ts, rgn, cgg, dong, nis_avg, nis_max, lux_avg)에 구간 시작·밤 날짜를 붙이고 범위 밖 값 정리."""
+    df = df.copy()
     for c in ["rgn", "cgg", "dong"]:
         df[c] = df[c].astype("string")
     df["hs"] = M.hour_start(df["ts"])

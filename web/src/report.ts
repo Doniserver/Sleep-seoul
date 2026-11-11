@@ -1,6 +1,6 @@
-import { calendar, dbScale, heatmap } from "./charts";
+import { calendar, dbScale, heatmap, yearTrend } from "./charts";
 import { colorFor } from "./colors";
-import { type Data, type Dong, fmt, loadBuildings, loadCalendar } from "./data";
+import { type Data, type Dong, fmt, loadBuildings, loadCalendar, loadTrends, loadYearCalendar, loadYearsIndex } from "./data";
 
 function esc(s: string) {
   return s.replace(/[&<>"']/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]!));
@@ -18,7 +18,7 @@ function scoreWord(s: number | null | undefined) {
   return s >= 85 ? "아주 좋음" : s >= 65 ? "좋음" : s >= 40 ? "보통" : "나쁨";
 }
 
-export async function renderReport(el: HTMLElement, data: Data, d: Dong, opts: { onCompare?: (code: string) => void } = {}) {
+export async function renderReport(el: HTMLElement, data: Data, d: Dong, opts: { onCompare?: (code: string) => void; year?: number | null; periodLabel?: string } = {}) {
   const t = data.meta.thresholds;
   const pat = data.patterns.find((p) => p.name === d.pattern);
   if (d.l_night == null) {
@@ -32,6 +32,7 @@ export async function renderReport(el: HTMLElement, data: Data, d: Dong, opts: {
       <h2>${esc(d.gu)} <span>${esc(d.name)}</span></h2>
       ${pat ? `<span class="badge" title="${esc(pat.desc)}">${esc(pat.name)}</span>` : ""}
     </div>
+    ${opts.periodLabel ? `<p class="period">기간: ${esc(opts.periodLabel)}</p>` : ""}
     <div class="big">
       <div><span class="chip" style="background:${colorFor(d.l_night)}" aria-hidden="true"></span><span class="num">${fmt(d.l_night)}</span><span class="unit">dB</span>
         <p class="lbl">밤(22~06시) 평균 소음 · 에너지 평균</p></div>
@@ -57,7 +58,8 @@ export async function renderReport(el: HTMLElement, data: Data, d: Dong, opts: {
                 : `<p class="hint">준비 중입니다. 숫자는 데이터에서 가져오고, AI는 문장만 만들 예정입니다.</p>`}
     </section>
     <section><h3>요일 × 시간 소음</h3><div data-x="heat" class="chart"></div></section>
-    <section><h3>조용한 밤 달력 <small>(${t.quiet_night}dB 미만인 밤 = 초록)</small></h3><div data-x="cal" class="chart"></div></section>
+    <section><h3>조용한 밤 달력 <small>(${t.quiet_night}dB 미만인 밤 = 초록${opts.year ? ` · ${opts.year}년` : ""})</small></h3><div data-x="cal" class="chart"></div></section>
+    <section><h3>연도별 밤 소음 <small>(주황 = 이 동, 점선 = 서울 행정동 중앙값, 빈 점 = 일부 기간)</small></h3><div data-x="trend" class="chart"></div></section>
     <section data-x="bld"></section>
     ${opts.onCompare ? `<div class="actions"><button type="button" data-x="cmp">이 동네를 비교에 담기</button></div>` : ""}
   `;
@@ -65,8 +67,11 @@ export async function renderReport(el: HTMLElement, data: Data, d: Dong, opts: {
   dbScale(q("scale"), d.l_night, data.meta.seoul.l_night_median, t);
   heatmap(q("heat"), d.heatmap, `${d.name} 요일×시간 소음`);
   if (opts.onCompare) q("cmp").addEventListener("click", () => opts.onCompare!(d.code));
-  const cal = await loadCalendar(data);
+  const cal = opts.year ? await loadYearCalendar(opts.year) : await loadCalendar(data);
   calendar(q("cal"), cal[d.code], t.quiet_night);
+  const [idx, tr] = await Promise.all([loadYearsIndex(), loadTrends()]);
+  yearTrend(q("trend"), idx.map((y) => ({ year: y.year, v: tr[d.code]?.[String(y.year)] ?? null, partial: y.partial })),
+    idx.map((y) => ({ year: y.year, v: y.seoul_median })), t, opts.year ?? undefined);
   await renderBuildingsSummary(q("bld"), data, d.code);
 }
 

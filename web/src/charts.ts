@@ -123,3 +123,34 @@ export function calendar(el: HTMLElement, nights: Record<string, number | null> 
     }
   }
 }
+
+/** 연도별 밤 소음 추이: 이 동(선) + 서울 행정동 중앙값(점선) */
+export function yearTrend(el: HTMLElement, dong: { year: number; v: number | null; partial: boolean }[],
+  seoul: { year: number; v: number | null }[], lines: Record<string, number>, selected?: number) {
+  el.innerHTML = "";
+  const years = dong.map((d) => d.year);
+  if (!years.length) { el.textContent = "연도별 자료가 아직 없습니다."; return; }
+  const w = 360, h = 190, m = { l: 34, r: 12, t: 14, b: 28 };
+  const x = d3.scalePoint<number>().domain(years).range([m.l, w - m.r]).padding(0.4);
+  const vals = [...dong.map((d) => d.v), ...seoul.map((d) => d.v)].filter((v): v is number => v != null);
+  const lo = Math.min(38, ...vals) - 1, hi = Math.max(50, ...vals) + 1;
+  const y = d3.scaleLinear().domain([lo, hi]).range([h - m.b, m.t]);
+  const desc = dong.map((d) => `${d.year}년 ${fmt(d.v, 1)}dB${d.partial ? "(부분)" : ""}`).join(", ");
+  const svg = d3.select(el).append("svg").attr("viewBox", `0 0 ${w} ${h}`).attr("role", "img").attr("aria-label", `연도별 밤 소음: ${desc}`);
+  svg.append("g").attr("transform", `translate(0,${h - m.b})`).call(d3.axisBottom(x).tickFormat((d) => `${d}`)).attr("color", "var(--ink-2)");
+  svg.append("g").attr("transform", `translate(${m.l},0)`).call(d3.axisLeft(y).ticks(5)).attr("color", "var(--ink-2)");
+  svg.append("text").attr("x", 4).attr("y", m.t - 2).attr("font-size", 10).attr("fill", TXT).text("dB");
+  [lines.who_target, lines.who_road].forEach((v) => {
+    if (v < lo || v > hi) return;
+    svg.append("line").attr("x1", m.l).attr("x2", w - m.r).attr("y1", y(v)).attr("y2", y(v)).attr("stroke", "var(--ink-2)").attr("stroke-dasharray", "3 3").attr("opacity", 0.6);
+  });
+  if (selected != null && years.includes(selected)) {
+    svg.append("rect").attr("x", x(selected)! - 14).attr("y", m.t).attr("width", 28).attr("height", h - m.b - m.t).attr("fill", "var(--panel-2)");
+  }
+  const line = d3.line<{ year: number; v: number | null }>().defined((d) => d.v != null).x((d) => x(d.year)!).y((d) => y(d.v as number));
+  svg.append("path").attr("d", line(seoul)).attr("fill", "none").attr("stroke", "var(--ink-2)").attr("stroke-width", 1.5).attr("stroke-dasharray", "5 4");
+  svg.append("path").attr("d", line(dong)).attr("fill", "none").attr("stroke", "var(--accent)").attr("stroke-width", 2.5);
+  dong.forEach((d) => d.v != null && svg.append("circle").attr("cx", x(d.year)!).attr("cy", y(d.v)).attr("r", 4)
+    .attr("fill", d.partial ? "var(--panel)" : colorFor(d.v)).attr("stroke", "var(--accent)").attr("stroke-width", 2)
+    .append("title").text(`${d.year}년 ${fmt(d.v, 1, "dB")}${d.partial ? " (일부 기간)" : ""}`));
+}

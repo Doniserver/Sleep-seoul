@@ -169,3 +169,4 @@ body[data-route="map"] .foot { padding-top: 8px; }
   .mapwrap { min-width: 0; max-width: 100%; }
 }
 .legend.dim #nlegend { opacity: 0.4; }
+.period { margin: 6px 0 0; display: inline-block; font-size: 12.5px; color: var(--ink); background: var(--panel-2); border: 1px solid var(--line); border-radius: 6px; padding: 2px 8px; }

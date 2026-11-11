@@ -104,3 +104,50 @@ export function fmt(v: number | null | undefined, digits = 1, unit = ""): string
 export function sortedDongs(d: Data): Dong[] {
   return Object.values(d.dongs).sort((a, b) => (a.gu + a.name).localeCompare(b.gu + b.name, "ko"));
 }
+
+// ── 연도별 (pipeline/yearly.py) ─────────────────────────────
+export interface YearInfo {
+  year: number; start: string | null; end: string | null; nights: number; partial: boolean;
+  sensors_used: number; dongs_with_data: number; seoul_median: number | null;
+}
+let yearsIndex: YearInfo[] | null | undefined;
+export async function loadYearsIndex(): Promise<YearInfo[]> {
+  if (yearsIndex === undefined) {
+    try { yearsIndex = await j<YearInfo[]>("years/index.json"); } catch { yearsIndex = null; }
+  }
+  return yearsIndex ?? [];
+}
+const yearCache = new Map<number, Promise<Record<string, Dong>>>();
+export function loadYear(y: number) {
+  if (!yearCache.has(y)) yearCache.set(y, j<Record<string, Dong>>(`years/${y}.json`));
+  return yearCache.get(y)!;
+}
+const yearCalCache = new Map<number, Promise<Record<string, Record<string, number | null>>>>();
+/** 연도 달력 {start, days, dongs:{동:[값]}} → {동: {날짜: 값}} */
+export function loadYearCalendar(y: number) {
+  if (!yearCalCache.has(y)) {
+    yearCalCache.set(y, j<{ start: string | null; days: number; dongs: Record<string, (number | null)[]> }>(`years/${y}_calendar.json`).then((c) => {
+      const out: Record<string, Record<string, number | null>> = {};
+      if (!c.start) return out;
+      const t0 = new Date(c.start + "T00:00:00");
+      const dates = Array.from({ length: c.days }, (_, i) => {
+        const d = new Date(t0); d.setDate(d.getDate() + i);
+        return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`;
+      });
+      for (const [code, arr] of Object.entries(c.dongs)) {
+        const m: Record<string, number | null> = {};
+        arr.forEach((v, i) => { if (v != null) m[dates[i]] = v; });
+        out[code] = m;
+      }
+      return out;
+    }));
+  }
+  return yearCalCache.get(y)!;
+}
+let trends: Record<string, Record<string, number | null>> | null | undefined;
+export async function loadTrends() {
+  if (trends === undefined) {
+    try { trends = await j("years/trends.json"); } catch { trends = null; }
+  }
+  return trends ?? {};
+}

@@ -6,7 +6,7 @@ import { BREAKS, COLORS, LABELS, NODATA, colorFor, step } from "./colors";
 
 const BUILDING_DEFAULT = "#8a93a6"; // 동 경계에 걸치거나 데이터 없는 동의 건물
 const B3D_COLOR: any = ["match", ["to-number", ["feature-state", "c"], -1], ...COLORS.flatMap((c, i) => [i, c]), BUILDING_DEFAULT];
-import { type Data, type Dong, HOURS, fmt, loadBuildings, loadSensors, sortedDongs } from "./data";
+import { type Data, type Dong, type YearInfo, HOURS, fmt, loadBuildings, loadSensors, loadYear, loadYearsIndex, sortedDongs } from "./data";
 import { type Near, type Place, dongAt, makeDongLocator, nearestSensors, searchPlaces } from "./place";
 import { renderReport } from "./report";
 
@@ -66,8 +66,10 @@ export function renderMap(root: HTMLElement, data: Data, params: URLSearchParams
         </form>
         <datalist id="dong-list">${sortedDongs(data).map((d) => `<option value="${d.gu} ${d.name}"></option>`).join("")}</datalist>
         <div class="row">
-          <label>기간 <select id="month"><option value="all">전체 (${data.meta.period.start} ~ ${data.meta.period.end})</option>
-            ${months.map((m) => `<option value="${m}">${m.replace("-", "년 ")}월</option>`).join("")}</select></label>
+          <label>기간 <select id="month">
+            <optgroup label="최근 기간"><option value="all">최근 (${data.meta.period.start} ~ ${data.meta.period.end})</option>
+            ${months.map((m) => `<option value="${m}">${m.replace("-", "년 ")}월</option>`).join("")}</optgroup>
+            <optgroup label="연도별" id="yeargroup"></optgroup></select></label>
         </div>
         <div class="row slider">
           <button type="button" id="play" aria-pressed="false" aria-label="밤 시간 재생">▶</button>
@@ -113,18 +115,29 @@ export function renderMap(root: HTMLElement, data: Data, params: URLSearchParams
   </div>`;
 
   const st: State = { hour: "all", month: "all", selected: params.get("d"), three: false, playing: null };
+  // 연도별 보기: 선택한 해의 동 지표(years/{연도}.json)로 바꿔서 칠한다
+  let year: number | null = null;
+  let yearDongs: Record<string, Dong> | null = null;
+  let yearInfos: YearInfo[] = [];
+  const srcOf = (code: string): Dong | null => (year ? yearDongs?.[code] ?? null : data.dongs[code] ?? null);
+  const periodLabel = () => {
+    if (!year) return st.month === "all" ? `${data.meta.period.start} ~ ${data.meta.period.end} 밤 (${data.meta.period.nights}일)` : `${st.month.replace("-", "년 ")}월`;
+    const y = yearInfos.find((x) => x.year === year);
+    return y ? `${year}년 · ${y.start} ~ ${y.end} 밤 ${y.nights}일${y.partial ? " (일부 기간)" : ""}` : `${year}년`;
+  };
   const map: MlMap = new maplibregl.Map({ container: "map", style: STYLE_URL, center: [126.99, 37.56], zoom: 10.2, minZoom: 9, maxZoom: 16, attributionControl: { compact: true } });
   map.addControl(new maplibregl.NavigationControl({ visualizePitch: true }), "top-right");
   if (import.meta.env.DEV) (window as any).__map = map; // 개발 중 디버그용
 
-  const valueOf = (d: Dong): number | null => {
+  const valueOf = (d: Dong | null): number | null => {
+    if (!d) return null;
     if (st.month !== "all") return d.months?.[st.month]?.l_night ?? null;
     if (st.hour !== "all") return d.by_hour?.[String(st.hour)] ?? null;
     return d.l_night;
   };
 
   const top = () => {
-    const vs = Object.values(data.dongs).map((d) => ({ d, v: valueOf(d) })).filter((x) => x.v != null) as { d: Dong; v: number }[];
+    const vs = Object.keys(data.dongs).map((c) => ({ d: srcOf(c) ?? data.dongs[c], v: valueOf(srcOf(c)) })).filter((x) => x.v != null) as { d: Dong; v: number }[];
     vs.sort((a, b) => a.v - b.v);
     const li = (x: { d: Dong; v: number }) => `<li><button type="button" class="link" data-code="${x.d.code}">${x.d.gu} ${x.d.name}</button> ${x.v.toFixed(1)}dB <small>센서 ${x.d.n_sensors}</small></li>`;
     const q = root.querySelector("#top-q"), l = root.querySelector("#top-l");
@@ -135,8 +148,7 @@ export function renderMap(root: HTMLElement, data: Data, params: URLSearchParams
 
   const paint = () => {
     for (const f of data.geo.features) {
-      const d = data.dongs[(f.properties as any).code];
-      const v = d ? valueOf(d) : null;
+      const v = valueOf(srcOf((f.properties as any).code));
       map.setFeatureState({ source: "dongs", id: f.id as number }, { v: v ?? 0, has: v != null });
     }
     top();
@@ -150,7 +162,9 @@ export function renderMap(root: HTMLElement, data: Data, params: URLSearchParams
     st.selected = code;
     history.replaceState(null, "", `#/map?d=${code}`);
     map.setFilter("sel", ["==", ["get", "code"], code]);
-    renderReport(panel, data, d, { onCompare });
+    const yd = year ? yearDongs?.[code] : null;
+    const shown: Dong = year ? { ...d, ...(yd ?? { l_night: null }), pattern: d.pattern, report: null } as Dong : d;
+    renderReport(panel, data, shown, { onCompare, year, periodLabel: periodLabel() });
     if (fly) {
       const f = data.geo.features.find((x) => (x.properties as any).code === code);
       if (f) {
@@ -245,7 +259,7 @@ export function renderMap(root: HTMLElement, data: Data, params: URLSearchParams
       const f = e.features?.[0]; if (!f) return;
       const d = data.dongs[(f.properties as any).code];
       map.getCanvas().style.cursor = "pointer";
-      pop.setLngLat(e.lngLat).setHTML(`<b>${d.gu} ${d.name}</b><br>${fmt(d ? valueOf(d) : null, 1, "dB")}`).addTo(map);
+      pop.setLngLat(e.lngLat).setHTML(`<b>${d.gu} ${d.name}</b><br>${fmt(valueOf(srcOf(d.code)), 1, "dB")}${year ? ` <small>(${year}년)</small>` : ""}`).addTo(map);
     });
     map.on("mouseleave", "fill", () => { map.getCanvas().style.cursor = ""; pop.remove(); });
     map.on("click", "fill", (e) => { const f = e.features?.[0]; if (f) select((f.properties as any).code); });
@@ -263,12 +277,28 @@ export function renderMap(root: HTMLElement, data: Data, params: URLSearchParams
     paint();
   };
   hour.addEventListener("input", () => setHour(+hour.value));
-  monthSel.addEventListener("change", () => {
+  loadYearsIndex().then((ys) => {
+    yearInfos = ys;
+    root.querySelector("#yeargroup")!.innerHTML = [...ys].reverse().map((y) =>
+      `<option value="y:${y.year}">${y.year}년${y.partial ? ` (일부 · 밤 ${y.nights}일)` : ""}</option>`).join("");
+  });
+  monthSel.addEventListener("change", async () => {
+    if (monthSel.value.startsWith("y:")) {
+      year = +monthSel.value.slice(2);
+      yearDongs = await loadYear(year);
+      st.month = "all";
+      hour.disabled = play.disabled = false;
+      paint();
+      if (st.selected) select(st.selected);
+      return;
+    }
+    year = null; yearDongs = null;
     st.month = monthSel.value;
     const monthly = st.month !== "all";
     hour.disabled = play.disabled = monthly;
     if (monthly) { stop(); setHour(0); hlabel.textContent = "밤 전체 (월별 보기에서는 시간 선택 없음)"; }
     paint();
+    if (st.selected) select(st.selected);
   });
   const stop = () => { if (st.playing) { clearInterval(st.playing); st.playing = null; } play.textContent = "▶"; play.setAttribute("aria-pressed", "false"); };
   play.addEventListener("click", () => {
