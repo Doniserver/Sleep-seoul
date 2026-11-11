@@ -44,7 +44,7 @@ jobs:
           cp data/locations/*.xlsx data/raw/
           python -m pipeline.build
           python -m pipeline.verify
-          python -m pipeline.yearly --year $(date +%Y)   # 올해 연도 지표도 갱신
+          python -m pipeline.yearly   # 끝난 해만: 해가 바뀌면 매일 모은 자료로 지난해를 자동 계산(더 완전한 기존 결과는 유지)
       - name: 바뀐 데이터 커밋
         run: |
           git config user.name "github-actions[bot]"

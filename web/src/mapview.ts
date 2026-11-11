@@ -279,6 +279,7 @@ export function renderMap(root: HTMLElement, data: Data, params: URLSearchParams
   hour.addEventListener("input", () => setHour(+hour.value));
   loadYearsIndex().then((ys) => {
     yearInfos = ys;
+    if (!ys.length) { root.querySelector("#yeargroup")?.remove(); return; }
     root.querySelector("#yeargroup")!.innerHTML = [...ys].reverse().map((y) =>
       `<option value="y:${y.year}">${y.year}년${y.partial ? ` (일부 · 밤 ${y.nights}일)` : ""}</option>`).join("");
   });

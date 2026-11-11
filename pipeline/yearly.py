@@ -19,6 +19,7 @@
 from __future__ import annotations
 
 import argparse
+import datetime as dt
 import io
 import json
 import re
@@ -183,14 +184,24 @@ def available_years() -> list[int]:
         ys.add(int(p.stem[:4]))
     for p in YEARS_RAW.glob("*.parquet"):
         ys.add(int(p.stem))
-    return sorted(y for y in ys if y >= FIRST_YEAR)
+    return sorted(y for y in ys if FIRST_YEAR <= y < this_year())
+
+
+def this_year() -> int:
+    """진행 중인 해는 연도별 보기에 넣지 않는다(계절이 다 들어 있지 않아 다른 해와 비교가 안 됨)."""
+    return dt.datetime.now(dt.timezone(dt.timedelta(hours=9))).year
 
 
 def run(years: list[int] | None = None, recollect: bool = False):
     feats = S.load_boundaries()
-    years = years or available_years()
+    years = [y for y in (years or available_years()) if y < this_year()]
     index_path = OUT / "index.json"
-    index = {y["year"]: y for y in (json.loads(index_path.read_text(encoding="utf-8")) if index_path.exists() else [])}
+    index = {y["year"]: y for y in (json.loads(index_path.read_text(encoding="utf-8")) if index_path.exists() else [])
+             if y["year"] < this_year()}
+    for f in OUT.glob("*.json"):
+        m = re.match(r"(\d{4})", f.stem)
+        if m and int(m.group(1)) >= this_year():
+            f.unlink()
     for y in years:
         cache = YEARS_RAW / f"{y}.parquet"
         newer_raw = any(p.stat().st_mtime > cache.stat().st_mtime for p in raw_sources(y)) if cache.exists() else True
@@ -199,6 +210,10 @@ def run(years: list[int] | None = None, recollect: bool = False):
             print(f"[yearly] {y}: 자료 없음")
             continue
         res = summarize_year(y, df, feats)
+        if y in index and index[y].get("nights", 0) > res["info"]["nights"]:
+            # 예: 자동 갱신(매일 받은 자료만)이 연도 zip으로 만든 더 완전한 결과를 덮어쓰지 않게
+            print(f"[yearly] {y}: 기존 결과(밤 {index[y]['nights']}일)가 더 완전해서 유지")
+            continue
         _dump(OUT / f"{y}.json", res["dongs"])
         _dump(OUT / f"{y}_calendar.json", compact_calendar(res["calendar"], res["info"]))
         index[y] = res["info"]
