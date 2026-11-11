@@ -69,6 +69,8 @@ jobs:
         working-directory: web
       - run: npm run build
         working-directory: web
+        env:
+          VITE_VWORLD_KEY: ${{ secrets.VITE_VWORLD_KEY }}   # 브이월드 키(배포 주소로 등록한 것). 브라우저에 노출되는 키
       - uses: actions/configure-pages@v5
       - uses: actions/upload-pages-artifact@v3
         with: { path: web/dist }

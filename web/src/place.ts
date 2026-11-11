@@ -1,37 +1,58 @@
-// 건물·장소 검색: Photon(OpenStreetMap 기반, 키 없음) → 좌표 → 행정동 + 가까운 센서
+// 건물·장소 검색: 브이월드 검색 API(국토교통부) → 좌표 → 행정동 + 가까운 센서
 import type { Data, Sensor } from "./data";
 
 export interface Place { name: string; addr: string; lon: number; lat: number }
 
+const VW_KEY = String(import.meta.env.VITE_VWORLD_KEY ?? "").trim();
 const SEOUL_BBOX = [126.76, 37.41, 127.19, 37.72]; // minLon, minLat, maxLon, maxLat
-const PHOTON = "https://photon.komoot.io/api/";
+const SEARCH = "https://api.vworld.kr/req/search";
 
-async function photon(q: string): Promise<Place[]> {
-  const u = `${PHOTON}?q=${encodeURIComponent(q)}&limit=8&bbox=${SEOUL_BBOX.join(",")}`;
-  const r = await fetch(u);
-  if (!r.ok) throw new Error(`장소 검색 실패 (${r.status})`);
-  const j = await r.json();
+/** 브이월드 검색은 브라우저 직접 호출(CORS)을 허용하지 않아 JSONP(callback)로 부른다 */
+function jsonp<T>(url: string, timeoutMs = 8000): Promise<T> {
+  return new Promise((resolve, reject) => {
+    const cb = `__vw_cb_${Date.now()}_${Math.floor(Math.random() * 1e6)}`;
+    const s = document.createElement("script");
+    const done = () => { delete (window as any)[cb]; s.remove(); clearTimeout(t); };
+    const t = setTimeout(() => { done(); reject(new Error("응답 시간 초과")); }, timeoutMs);
+    (window as any)[cb] = (data: T) => { done(); resolve(data); };
+    s.onerror = () => { done(); reject(new Error("연결 실패")); };
+    s.src = `${url}&callback=${cb}`;
+    document.head.appendChild(s);
+  });
+}
+
+// 응답 필드(실제 응답으로 확인): response.status(OK/NOT_FOUND), result.items[].title, address.road/parcel, point.x/y
+async function vworld(query: string, type: "place" | "address", category = ""): Promise<Place[]> {
+  if (!VW_KEY) throw new Error("브이월드 인증키가 없습니다");
+  const p = new URLSearchParams({ service: "search", request: "search", version: "2.0", crs: "EPSG:4326", size: "10", page: "1",
+    type, format: "json", errorformat: "json", bbox: SEOUL_BBOX.join(","), query, key: VW_KEY });
+  if (category) p.set("category", category);
+  const j: any = await jsonp(`${SEARCH}?${p}`);
+  const r = j?.response;
+  if (!r || r.status === "NOT_FOUND") return [];
+  if (r.status !== "OK") throw new Error(r.error?.text ?? `검색 오류 (${r.status})`);
   const out: Place[] = [];
-  for (const f of j.features ?? []) {
-    const p = f.properties ?? {};
-    const [lon, lat] = f.geometry?.coordinates ?? [];
-    if (typeof lon !== "number" || typeof lat !== "number") continue;
-    const addr = [p.district, p.street, p.housenumber].filter(Boolean).join(" ");
-    const name = p.name ?? p.street ?? q;
-    // 같은 이름이 50m 안에 겹치면 하나만
-    if (out.some((o) => o.name === name && dist(o.lon, o.lat, lon, lat) < 50)) continue;
+  for (const it of r.result?.items ?? []) {
+    const lon = parseFloat(it.point?.x), lat = parseFloat(it.point?.y);
+    if (!Number.isFinite(lon) || !Number.isFinite(lat)) continue;
+    const addr = String(it.address?.road || it.address?.parcel || "").replace(/^서울특별시\s*/, "");
+    const name = String(it.title || addr || query);
+    if (out.some((o) => o.name === name && dist(o.lon, o.lat, lon, lat) < 50)) continue; // 같은 이름이 50m 안에 겹치면 하나만
     out.push({ name, addr, lon, lat });
   }
   return out;
 }
 
-/** 결과가 없으면 앞 단어를 하나씩 떼고 다시 찾는다. 예: "서울대 호암교수회관" → "호암교수회관" */
+/** 장소 이름으로 먼저 찾고, 없으면 도로명·지번 주소로 찾는다. 그래도 없으면 앞 단어를 하나씩 떼고 다시 찾는다. */
 export async function searchPlaces(query: string, data: Data): Promise<{ places: Place[]; used: string }> {
   const words = query.trim().split(/\s+/);
   for (let i = 0; i < words.length; i++) {
     const q = words.slice(i).join(" ");
     if (q.length < 2) break;
-    const ps = (await photon(q)).filter((p) => dongAt(data, p.lon, p.lat));
+    let ps = await vworld(q, "place");
+    if (!ps.length) ps = await vworld(q, "address", "road");
+    if (!ps.length) ps = await vworld(q, "address", "parcel");
+    ps = ps.filter((p) => dongAt(data, p.lon, p.lat));
     if (ps.length) return { places: ps.slice(0, 5), used: q };
   }
   return { places: [], used: query };
@@ -79,23 +100,4 @@ export function nearestSensors(sensors: Sensor[], lon: number, lat: number, k = 
     .filter((x) => x.d <= maxM)
     .sort((a, b) => a.d - b.d)
     .slice(0, k);
-}
-
-/** 많은 점을 빠르게 동에 넣기 위한 판정기 (동마다 경계 상자로 먼저 거름) */
-export function makeDongLocator(data: Data): (lon: number, lat: number) => string | null {
-  const items = data.geo.features.map((f) => {
-    const g: any = f.geometry;
-    const polys: number[][][][] = g.type === "Polygon" ? [g.coordinates] : g.coordinates;
-    let x0 = Infinity, y0 = Infinity, x1 = -Infinity, y1 = -Infinity;
-    for (const p of polys) for (const [x, y] of p[0]) { if (x < x0) x0 = x; if (x > x1) x1 = x; if (y < y0) y0 = y; if (y > y1) y1 = y; }
-    return { code: (f.properties as any).code as string, polys, bb: [x0, y0, x1, y1] };
-  });
-  return (lon, lat) => {
-    for (const it of items) {
-      const [x0, y0, x1, y1] = it.bb;
-      if (lon < x0 || lon > x1 || lat < y0 || lat > y1) continue;
-      if (it.polys.some((p) => inPolygon(lon, lat, p))) return it.code;
-    }
-    return null;
-  };
 }

@@ -184,3 +184,17 @@ body[data-route="map"] .foot { padding-top: 8px; }
 .rangebox small { color: var(--ink-2); margin-right: 8px; }
 .rangebox span:last-child { font-size: 12.5px; color: var(--ink-2); }
 .cyear { display: inline-grid; gap: 4px; color: var(--ink-2); margin: 4px 0 10px; min-width: 200px; }
+
+/* 브이월드 실사 3D 화면 (지도 위에 덮어서 띄움) */
+.real3d { width: 100%; padding: 8px 10px; border-radius: 8px; border: 1px solid var(--accent); background: transparent; color: var(--ink); font-weight: 700; }
+.real3d:hover { background: var(--panel-2); }
+.real3d small { color: var(--ink-2); font-weight: 400; margin-left: 4px; }
+.v3d { position: absolute; inset: 0; z-index: 8; background: #0b111c; display: flex; flex-direction: column; }
+.v3d[hidden] { display: none; }
+.v3d-bar { display: flex; align-items: center; justify-content: space-between; gap: 10px; padding: 8px 12px; background: var(--panel); border-bottom: 1px solid var(--line); font-weight: 700; }
+.v3d-bar button { padding: 6px 12px; border-radius: 8px; border: 1px solid var(--accent); background: var(--accent); color: #111; font-weight: 700; }
+.v3d iframe { flex: 1; width: 100%; border: 0; min-height: 0; }
+.v3d-note { margin: 0; padding: 6px 12px; font-size: 12px; color: var(--ink-2); background: var(--panel); border-top: 1px solid var(--line); }
+.ctrl .basemap { flex-wrap: wrap; }
+.ctrl .basemap button { font-size: 12.5px; padding: 6px 4px; }
+@media (max-width: 900px) { .v3d { position: fixed; } }

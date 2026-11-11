@@ -1,0 +1,62 @@
+<!doctype html>
+<html lang="ko">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>실사 3D · 잠 잘 오는 동네</title>
+    <style>
+      html, body { margin: 0; height: 100%; background: #0b111c; color: #eef2f8; font-family: "Apple SD Gothic Neo", "Noto Sans KR", system-ui, sans-serif; }
+      #map { position: absolute; inset: 0; }
+      #msg { position: absolute; left: 50%; top: 50%; transform: translate(-50%, -50%); background: rgba(15, 22, 38, 0.92); padding: 10px 16px; border-radius: 10px; font-size: 14px; text-align: center; max-width: 80%; }
+    </style>
+    <!-- 브이월드 웹지엘 3D지도 API 3.0 (국토교통부). 키는 빌드할 때 .env의 VITE_VWORLD_KEY로 채워진다 -->
+    <script>
+      document.write('<script src="https://map.vworld.kr/js/webglMapInit.js.do?version=3.0&apiKey=%VITE_VWORLD_KEY%&domain=' + encodeURIComponent(location.host) + '"><\/script>');
+    </script>
+  </head>
+  <body>
+    <div id="map"></div>
+    <div id="msg" role="status">실사 3D 지도를 불러오는 중…</div>
+    <script>
+      (function () {
+        var msg = document.getElementById("msg");
+        var q = new URLSearchParams(location.search);
+        var lon = parseFloat(q.get("lon")) || 126.978, lat = parseFloat(q.get("lat")) || 37.5665;
+        if (typeof vw === "undefined") {
+          msg.textContent = "브이월드 3D 지도를 불러오지 못했습니다. 인증키와 등록한 사이트 주소를 확인해 주세요.";
+          return;
+        }
+        // 목표 지점을 비스듬히 내려다보도록 카메라를 남쪽 위에 둔다
+        var H = 650, tilt = 35, back = H / Math.tan((tilt * Math.PI) / 180);
+        var map = new vw.Map();
+        map.setOption({
+          mapId: "map",
+          initPosition: new vw.CameraPosition(new vw.CoordZ(lon, lat - back / 111320, H), new vw.Direction(0, -tilt, 0)),
+          logo: true,
+          navigation: true,
+        });
+        map.start();
+        setTimeout(function () { msg.hidden = true; }, 2500);
+
+        vw.ws3dInitCallBack = function () {
+          msg.hidden = true;
+          var code = q.get("code");
+          if (!code || typeof Cesium === "undefined") return;
+          var color = Cesium.Color.fromCssColorString(q.get("color") || "#ffffff");
+          fetch("data/dongs.geojson").then(function (r) { return r.json(); }).then(function (g) {
+            var f = g.features.find(function (x) { return x.properties.code === code; });
+            if (!f) return;
+            var polys = f.geometry.type === "Polygon" ? [f.geometry.coordinates] : f.geometry.coordinates;
+            polys.forEach(function (poly) {
+              var flat = [];
+              poly[0].forEach(function (c) { flat.push(c[0], c[1]); });
+              // 동 경계선만 땅 위에 그린다 (면을 칠하면 실제 건물 모습이 가려짐)
+              ws3d.viewer.entities.add({ polyline: { positions: Cesium.Cartesian3.fromDegreesArray(flat), width: 5, material: color, clampToGround: true } });
+              ws3d.viewer.entities.add({ polyline: { positions: Cesium.Cartesian3.fromDegreesArray(flat), width: 1.5, material: Cesium.Color.WHITE, clampToGround: true } });
+            });
+          });
+        };
+      })();
+    </script>
+  </body>
+</html>

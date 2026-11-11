@@ -217,6 +217,15 @@ def summarize_year(year: int, df: pd.DataFrame, feats) -> dict:
     keep = ["code", "name", "gu", "n_sensors", "basis", "l_night", "by_hour", "by_hour24", "heatmap", "score", "pattern",
             "peaks_per_night", "lux", "weekend_effect", "quiet_ratio", "months"]
     slim = {c: {k: r[k] for k in keep if k in r} for c, r in dongs.items()}
+    # 그 해의 센서별 값 (장소 검색의 '가까운 센서', 센서 위치 보기용)
+    pts = []
+    for sn, r in sensors.iterrows():
+        if pd.isna(r.get("lat")):
+            continue
+        pts.append({"sn": sn, "lat": round(float(r["lat"]), 5), "lon": round(float(r["lon"]), 5),
+                    "rgn": r["rgn"] if pd.notna(r["rgn"]) else None, "rgn_ko": C.RGN_KO.get(r["rgn"], "구분 없음") if pd.notna(r["rgn"]) else "구분 없음",
+                    "adm": r["adm"] if pd.notna(r["adm"]) else None, "used": bool(sn in basis.index),
+                    "noise_ok": bool(r["noise_ok"]), "l_night": A._r(r.get("l_night"))})
     nds = night["nd"].dropna()
     vals = [r["l_night"] for r in slim.values() if r.get("l_night") is not None]
     info = {
@@ -234,7 +243,7 @@ def summarize_year(year: int, df: pd.DataFrame, feats) -> dict:
         "excluded_sensors": sum(1 for x in log if x["type"] == "sensor"),
         "sources": [p.name for p in raw_sources(year)] + (["data/hourly"] if list(C.HOURLY.glob(f"{year}-*.parquet")) else []),
     }
-    return {"info": info, "dongs": slim, "calendar": calendar}
+    return {"info": info, "dongs": slim, "calendar": calendar, "sensors": pts}
 
 
 def compact_calendar(cal: dict, info: dict) -> dict:
@@ -306,6 +315,7 @@ def run(years: list[int] | None = None, recollect: bool = False):
             continue
         _dump(OUT / f"{y}.json", res["dongs"])
         _dump(OUT / f"{y}_calendar.json", compact_calendar(res["calendar"], res["info"]))
+        _dump(OUT / f"{y}_sensors.json", res["sensors"])
         index[y] = res["info"]
         _dump(index_path, [index[k] for k in sorted(index)])   # 중간에 멈춰도 끝난 해는 남게
         print(f"[yearly] {y}: 밤 {res['info']['nights']}일, 동 {res['info']['dongs_with_data']}곳, 서울 중앙값 {res['info']['seoul_median']}dB")

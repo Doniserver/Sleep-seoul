@@ -12,7 +12,7 @@
 
 | 화면 | 내용 |
 |---|---|
-| 서울의 밤 지도 | 행정동별 밤 소음 색 지도, 22~06시 시간 슬라이더·재생, 월별 보기, 위성 지도, 3D 건물, 건물·장소 검색 |
+| 서울의 밤 지도 | 행정동별 밤 소음 색 지도, 22~06시 시간 슬라이더·재생, 연도·시간대 선택, 항공사진, 브이월드 실사 3D, 건물·장소 검색 |
 | 동네 리포트 | 밤 소음과 WHO 40·45·55dB 대비, 수면 점수, 피크 횟수, 밤 밝기, 주말 효과, 소음 패턴 유형, 요일×시간 히트맵, 조용한 밤 달력, 층간소음 추정 |
 | 두 동네 비교 | 이사 후보 두 곳의 지표표, 밤 시간대별 선 그래프, 히트맵 |
 | 방법·한계 | 산식, 기준선, 데이터 정리 규칙, 출처 |
@@ -24,6 +24,7 @@
 | S-DoT 환경정보 주간 CSV + Open API `IotVdata017` | [서울 열린데이터광장](https://data.seoul.go.kr/dataList/OA-15969/S/1/datasetView.do) (공공누리 1유형) | 소음·조도 |
 | S-DoT 설치 위치정보.xlsx | 같은 페이지 첨부 | 센서 → 행정동 |
 | 행정동 경계 ver20261001 | [vuski/admdongkor](https://github.com/vuski/admdongkor) (CC BY 4.0) | 지도 |
+| 배경지도·항공사진·실사 3D·장소 검색 | [브이월드](https://www.vworld.kr)(국토교통부), 인증키 `VITE_VWORLD_KEY` | 지도 바탕, 3D, 검색 |
 | 공동주택 단지 목록·기본 정보(K-APT) | 공공데이터포털 국토교통부 | 층간소음 추정 |
 
 ## 폴더
@@ -66,7 +67,7 @@ npm run setup && npm run dev   # 맨 위 폴더에서 실행 (web/ 으로 넘겨
 테스트 → 최근 3일 API 수집 → 빌드 → 숫자 검증 → 데이터 커밋 → GitHub Pages 배포 순서입니다.
 
 처음 한 번 할 일:
-1. 저장소 **Settings → Secrets and variables → Actions**에 `SEOUL_OPENAPI_KEY`를 등록합니다. 공동주택까지 자동화하려면 `DATA_GO_KR_KEY`도 등록합니다.
+1. 저장소 **Settings → Secrets and variables → Actions**에 `SEOUL_OPENAPI_KEY`와 `VITE_VWORLD_KEY`(브이월드, 배포 주소로 발급한 키)를 등록합니다. 공동주택까지 자동화하려면 `DATA_GO_KR_KEY`도 등록합니다.
 2. **Settings → Pages → Source**를 **GitHub Actions**로 바꿉니다.
 3. **Actions** 탭에서 워크플로를 한 번 수동 실행(Run workflow)합니다.
 

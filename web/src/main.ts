@@ -11,7 +11,7 @@ let compareA: string | null = null;
 
 function footerHtml(d: Data) {
   const m = d.meta;
-  return `<p><b>출처</b> · ${m.sources.map((s) => `<a href="${s.url}" target="_blank" rel="noopener">${s.name}</a> (${s.by})`).join(" · ")} · 배경지도 © OpenStreetMap · OpenFreeMap · 위성 영상 © Esri, Maxar, Earthstar Geographics</p>
+  return `<p><b>출처</b> · ${m.sources.map((s) => `<a href="${s.url}" target="_blank" rel="noopener">${s.name}</a> (${s.by})`).join(" · ")} · 배경지도·항공사진·실사 3D·장소 검색 © <a href="https://www.vworld.kr" target="_blank" rel="noopener">브이월드</a>(국토교통부)</p>
   <p><b>데이터 기간</b> <span id="foot-period">연도별 2020~2025년 (위에서 고른 연도 기준)</span> · <b>생성</b> ${m.generated_at.replace("T", " ")} KST ·
   소음은 길가 센서로 잰 동네 바깥 환경이며 간이측정기 기반 비교용 지표입니다. 층간소음 등급은 건축 연식 기준 추정입니다.</p>`;
 }

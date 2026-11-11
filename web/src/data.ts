@@ -53,7 +53,6 @@ export interface Data {
   geo: GeoJSON.FeatureCollection;
   patterns: Pattern[];
   calendar?: Record<string, Record<string, number | null>>;
-  sensors?: Sensor[];
   buildings?: BuildingsFile | null;
 }
 
@@ -82,9 +81,11 @@ export async function loadCalendar(d: Data) {
   return d.calendar!;
 }
 
-export async function loadSensors(d: Data) {
-  if (!d.sensors) d.sensors = await j("sensors.json");
-  return d.sensors!;
+const sensorCache = new Map<number, Promise<Sensor[]>>();
+/** 그 해의 센서별 값 (years/{연도}_sensors.json) */
+export function loadSensors(year: number): Promise<Sensor[]> {
+  if (!sensorCache.has(year)) sensorCache.set(year, j<Sensor[]>(`years/${year}_sensors.json`).catch(() => []));
+  return sensorCache.get(year)!;
 }
 
 export async function loadBuildings(d: Data) {

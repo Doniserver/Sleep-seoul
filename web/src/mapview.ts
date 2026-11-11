@@ -1,13 +1,10 @@
 import * as maplibregl from "maplibre-gl";
-import type { Map as MlMap } from "maplibre-gl";
+import type { Map as MlMap, StyleSpecification } from "maplibre-gl";
 import "maplibre-gl/dist/maplibre-gl.css";
 import workerUrl from "maplibre-gl/dist/maplibre-gl-worker.mjs?url";
-import { BREAKS, COLORS, LABELS, NODATA, colorFor, step } from "./colors";
-
-const BUILDING_DEFAULT = "#8a93a6"; // 동 경계에 걸치거나 데이터 없는 동의 건물
-const B3D_COLOR: any = ["match", ["to-number", ["feature-state", "c"], -1], ...COLORS.flatMap((c, i) => [i, c]), BUILDING_DEFAULT];
+import { COLORS, LABELS, NODATA, colorFor, step } from "./colors";
 import { type Data, type Dong, type YearInfo, fmt, loadBuildings, loadSensors, loadYear, loadYearsIndex, sortedDongs } from "./data";
-import { type Near, type Place, dongAt, makeDongLocator, nearestSensors, searchPlaces } from "./place";
+import { type Near, type Place, dongAt, nearestSensors, searchPlaces } from "./place";
 import { renderReport } from "./report";
 
 function escHtml(s: string) {
@@ -15,7 +12,7 @@ function escHtml(s: string) {
 }
 
 /** 장소 카드: 그 위치 자체를 잰 값이 아님을 분명히 */
-function placeCard(p: Place, d: Dong, near: Near[]): HTMLElement {
+function placeCard(p: Place, d: Dong, near: Near[], year: number): HTMLElement {
   const el = document.createElement("section");
   el.className = "placecard";
   el.setAttribute("aria-label", `${p.name} 주변 소음`);
@@ -26,7 +23,7 @@ function placeCard(p: Place, d: Dong, near: Near[]): HTMLElement {
     ${p.addr ? `<p class="hint">${escHtml(p.addr)}</p>` : ""}
     <div class="pc-row">
       <div><span class="chip sm" style="background:${colorFor(d.l_night)}"></span><b>${fmt(d.l_night, 1, "dB")}</b>
-        <p class="lbl">${escHtml(d.gu)} ${escHtml(d.name)} 대표값(밤)</p></div>
+        <p class="lbl">${escHtml(d.gu)} ${escHtml(d.name)} 대표값 · ${year}년 밤</p></div>
       ${near[0] ? `<div><span class="chip sm" style="background:${colorFor(near[0].s.l_night)}"></span><b>${fmt(near[0].s.l_night, 1, "dB")}</b>
         <p class="lbl">가장 가까운 센서 · ${m(near[0].d)}</p></div>` : ""}
     </div>
@@ -39,8 +36,26 @@ function placeCard(p: Place, d: Dong, near: Near[]): HTMLElement {
 // 번들러가 워커 파일을 옮기므로 위치를 직접 알려준다
 maplibregl.setWorkerUrl(workerUrl);
 
-// 무료·키 없는 배경지도 (OpenFreeMap, OpenStreetMap 데이터)
-const STYLE_URL = "https://tiles.openfreemap.org/styles/dark";
+// 배경지도: 브이월드(국토교통부) WMTS 타일. 키는 .env의 VITE_VWORLD_KEY (등록한 주소에서만 동작)
+export const VW_KEY = String(import.meta.env.VITE_VWORLD_KEY ?? "").trim();
+const VW_ATTR = '배경지도·항공사진 © <a href="https://www.vworld.kr" target="_blank" rel="noopener">브이월드</a>(국토교통부)';
+const vw = (layer: string, ext: string) => ({
+  type: "raster" as const, tileSize: 256, minzoom: 6, maxzoom: 19, attribution: VW_ATTR,
+  tiles: [`https://api.vworld.kr/req/wmts/1.0.0/${VW_KEY}/${layer}/{z}/{y}/{x}.${ext}`],
+});
+type Basemap = "dark" | "light" | "sat";
+const STYLE: StyleSpecification = {
+  version: 8,
+  sources: VW_KEY ? { "vw-dark": vw("midnight", "png"), "vw-light": vw("Base", "png"), "vw-sat": vw("Satellite", "jpeg"), "vw-label": vw("Hybrid", "png") } : {},
+  layers: [
+    { id: "bg", type: "background", paint: { "background-color": "#0b111c" } },
+    ...(VW_KEY ? [
+      { id: "vw-dark", type: "raster" as const, source: "vw-dark" },
+      { id: "vw-light", type: "raster" as const, source: "vw-light", layout: { visibility: "none" as const } },
+      { id: "vw-sat", type: "raster" as const, source: "vw-sat", layout: { visibility: "none" as const } },
+    ] : []),
+  ],
+};
 
 // '높음' 등급 단지 비율 0~100% (어두움 → 밝음)
 const BLD_COLORS = ["#2f3b55", "#5b4f7a", "#8f6585", "#c98471", "#ffb38a"];
@@ -52,6 +67,11 @@ export function renderMap(root: HTMLElement, data: Data, params: URLSearchParams
   root.innerHTML = `
   <div class="mapgrid">
     <section class="mapwrap" aria-label="서울의 밤 지도">
+      <div id="v3d" class="v3d" hidden>
+        <div class="v3d-bar"><span id="v3d-title">실사 3D</span><button type="button" id="v3d-close">지도로 돌아가기</button></div>
+        <iframe id="v3d-frame" title="브이월드 실사 3D 지도" allow="fullscreen"></iframe>
+        <p class="v3d-note">실제 건물 모습은 브이월드(국토교통부) 3D 지도입니다. 선은 고른 동의 경계이고, 소음 값은 건물마다 잰 것이 아니라 동 대표값입니다.</p>
+      </div>
       <div id="map" role="application" aria-label="행정동별 밤 소음 지도. 아래 검색창으로도 동네를 고를 수 있습니다."></div>
       <div class="ctrl">
         <form class="search" id="qform" role="search">
@@ -83,19 +103,19 @@ export function renderMap(root: HTMLElement, data: Data, params: URLSearchParams
         </fieldset>
         <div class="row basemap" role="group" aria-label="배경 지도">
           <span>배경</span>
-          <button type="button" id="bm-normal" aria-pressed="true">일반 지도</button>
-          <button type="button" id="bm-sat" aria-pressed="false">위성 지도</button>
+          <button type="button" data-bm="dark" aria-pressed="true">어두운 지도</button>
+          <button type="button" data-bm="light" aria-pressed="false">밝은 지도</button>
+          <button type="button" data-bm="sat" aria-pressed="false">항공사진</button>
         </div>
         <label class="opacity">색 진하기 <span id="oplabel">80%</span>
           <input type="range" id="op" min="0" max="100" step="5" value="80" aria-describedby="oplabel" />
         </label>
         <div class="row toggles">
-          <label><input type="checkbox" id="t3b" /> 3D 건물</label>
           <label><input type="checkbox" id="t3d" /> 3D 기둥(연출)</label>
           <label><input type="checkbox" id="tsen" /> 센서 위치</label>
           <label><input type="checkbox" id="tbld" /> 층간소음 위험(추정)</label>
         </div>
-        <p id="b3dnote" class="hint" hidden>건물 모양·높이는 OpenStreetMap 기준이고, 색은 그 건물이 있는 <b>동의 밤 소음 단계</b>입니다. 건물마다 잰 값이 아닙니다(건물 중심점이 있는 동 기준). 값이 없는 동의 건물은 회색입니다.</p>
+        <button type="button" id="real3d" class="real3d">실사 3D로 보기 <small>브이월드</small></button>
         <div class="legend" aria-label="색 범례">
           <div id="nlegend"><p>밤 소음 (dB)</p>
           <ul>${COLORS.map((c, i) => `<li><span style="background:${c}"></span>${LABELS[i]}</li>`).join("")}
@@ -139,7 +159,7 @@ export function renderMap(root: HTMLElement, data: Data, params: URLSearchParams
     const y = yearInfos.find((x) => x.year === year);
     return y ? `${year}년 · ${y.start} ~ ${y.end} 밤 ${y.nights}일${y.partial ? " (일부 기간)" : ""}` : `${year}년`;
   };
-  const map: MlMap = new maplibregl.Map({ container: "map", style: STYLE_URL, center: [126.99, 37.56], zoom: 10.2, minZoom: 9, maxZoom: 16, attributionControl: { compact: true } });
+  const map: MlMap = new maplibregl.Map({ container: "map", style: STYLE, center: [126.99, 37.56], zoom: 10.2, minZoom: 9, maxZoom: 18, attributionControl: { compact: true } });
   map.addControl(new maplibregl.NavigationControl({ visualizePitch: true }), "top-right");
   if (import.meta.env.DEV) (window as any).__map = map; // 개발 중 디버그용
 
@@ -171,7 +191,6 @@ export function renderMap(root: HTMLElement, data: Data, params: URLSearchParams
       map.setFeatureState({ source: "dongs", id: f.id as number }, { v: v ?? 0, has: v != null });
     }
     top();
-    if (buildings3D) colorBuildings();
   };
 
   const panel = root.querySelector<HTMLElement>("#panel")!;
@@ -198,85 +217,23 @@ export function renderMap(root: HTMLElement, data: Data, params: URLSearchParams
     }
   };
 
-  let baseDrawLayers: string[] = [];
-  let baseBuildingIds: string[] = [];
-  let buildings3D = false;
-  // 건물(벡터 타일 피처)마다 중심점이 속한 동을 계산해 feature-state로 색 단계를 붙인다
-  // (지도 라이브러리의 'within'은 면 도형에 동작하지 않아 직접 계산)
-  const locate = makeDongLocator(data);
-  const bldDong = new Map<number, string | null>();
-  let bldSource = "";
-  const classOf = (code: string | null | undefined): number => {
-    const d = code ? data.dongs[code] : undefined;
-    const v = d ? valueOf(d) : null;
-    if (v == null) return -1;
-    let i = 0; while (i < BREAKS.length && v >= BREAKS[i]) i++;
-    return i;
-  };
-  const tagBuildings = () => {
-    if (!buildings3D || !bldSource) return;
-    for (const f of map.querySourceFeatures(bldSource, { sourceLayer: "building" })) {
-      const id = f.id as number;
-      if (id == null || bldDong.has(id)) continue;
-      const g: any = f.geometry;
-      const ring: number[][] = g.type === "Polygon" ? g.coordinates[0] : g.coordinates[0][0];
-      let sx = 0, sy = 0;
-      for (const [x, y] of ring) { sx += x; sy += y; }
-      const code = locate(sx / ring.length, sy / ring.length);
-      bldDong.set(id, code);
-      map.setFeatureState({ source: bldSource, sourceLayer: "building", id }, { c: classOf(code) });
-    }
-  };
-  /** 값(시간·기간)이 바뀌면 이미 계산한 건물들의 색 단계만 다시 붙인다 */
-  const colorBuildings = () => {
-    if (!bldSource) return;
-    for (const [id, code] of bldDong) map.setFeatureState({ source: bldSource, sourceLayer: "building", id }, { c: classOf(code) });
-    tagBuildings();
-  };
-  let tagTimer = 0;
-  const scheduleTag = () => { clearTimeout(tagTimer); tagTimer = window.setTimeout(tagBuildings, 150); };
   // 배경 타일을 다 받을 때까지 기다리지 않고, 스타일만 준비되면 바로 색칠
   let styleReady = false;
   map.once("style.load", () => {
     styleReady = true;
-    // 배경지도의 글자·도로 레이어는 우리 색칠 위로 오도록 첫 symbol 레이어 앞에 끼운다
-    const firstSymbol = map.getStyle().layers.find((l) => l.type === "symbol")?.id;
-    // 일반 지도의 그림 레이어(도로·건물·물 등). 위성 모드에서는 숨기고 지명 글자(symbol)만 남긴다
-    baseDrawLayers = map.getStyle().layers.filter((l) => l.type !== "symbol" && l.type !== "background").map((l) => l.id);
-    // 위성 영상 (Esri World Imagery, 키 없음). 처음엔 숨겨 두고 버튼으로 켠다
-    map.addSource("sat", { type: "raster", tileSize: 256, maxzoom: 18,
-      tiles: ["https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}"],
-      attribution: "위성: Esri, Maxar, Earthstar Geographics" });
-    map.addLayer({ id: "sat", type: "raster", source: "sat", layout: { visibility: "none" } }, firstSymbol);
     map.addSource("dongs", { type: "geojson", data: data.geo });
     const color: any = ["case", ["boolean", ["feature-state", "has"], false], step(["feature-state", "v"]), NODATA];
-    map.addLayer({ id: "fill", type: "fill", source: "dongs", paint: { "fill-color": color, "fill-opacity": 0.8 } }, firstSymbol);
+    map.addLayer({ id: "fill", type: "fill", source: "dongs", paint: { "fill-color": color, "fill-opacity": 0.8 } });
     map.addLayer({ id: "ext", type: "fill-extrusion", source: "dongs", layout: { visibility: "none" },
       paint: { "fill-extrusion-color": color, "fill-extrusion-opacity": 0.9,
         "fill-extrusion-height": ["case", ["boolean", ["feature-state", "has"], false], ["*", ["max", 0, ["-", ["feature-state", "v"], 33]], 120], 0] } });
-    map.addLayer({ id: "line", type: "line", source: "dongs", paint: { "line-color": "#0b111c", "line-width": 0.6 } }, firstSymbol);
-    // 실제 건물 3D (OpenStreetMap 건물 윤곽·높이). 색은 건물이 속한 동의 소음 단계
-    const bldBase = map.getStyle().layers.find((l: any) => l["source-layer"] === "building") as any;
-    if (bldBase) {
-      baseBuildingIds = map.getStyle().layers.filter((l: any) => l["source-layer"] === "building").map((l) => l.id);
-      bldSource = bldBase.source;
-      const bcolor: any = B3D_COLOR;
-      map.addLayer({ id: "b3d", type: "fill-extrusion", source: bldBase.source, "source-layer": "building", minzoom: 13,
-        layout: { visibility: "none" }, filter: ["!=", ["get", "hide_3d"], true],
-        paint: {
-          "fill-extrusion-color": bcolor,
-          "fill-extrusion-height": ["interpolate", ["linear"], ["zoom"], 13, 0, 14.5, ["coalesce", ["get", "render_height"], 8]],
-          "fill-extrusion-base": ["coalesce", ["get", "render_min_height"], 0],
-          "fill-extrusion-opacity": 0.95,
-          "fill-extrusion-vertical-gradient": true,
-        } });
-      map.on("sourcedata", (e: any) => { if (e.sourceId === bldSource && e.isSourceLoaded) scheduleTag(); });
-      map.on("moveend", scheduleTag);
-      map.setLight({ anchor: "viewport", color: "#ffffff", intensity: 0.45, position: [1.2, 200, 35] });
-    }
+    map.addLayer({ id: "line", type: "line", source: "dongs", paint: { "line-color": "#0b111c", "line-width": 0.6 } });
+    // 지명·도로 이름: 색칠에 가려지지 않게 맨 위에 다시 얹는다 (브이월드 Hybrid = 투명 바탕의 지명·도로)
+    if (VW_KEY) map.addLayer({ id: "vw-label", type: "raster", source: "vw-label", paint: { "raster-opacity": 0.85 } });
     map.addLayer({ id: "sel", type: "line", source: "dongs", filter: ["==", ["get", "code"], ""], paint: { "line-color": "#ffffff", "line-width": 2.5 } });
     paint();
-    if (st.selected) select(st.selected, true);
+    if (lastPlace) showPlace(lastPlace);
+    else if (st.selected) select(st.selected, true);
 
     const pop = new maplibregl.Popup({ closeButton: false, closeOnClick: false, className: "tip" });
     map.on("mousemove", "fill", (e) => {
@@ -299,7 +256,9 @@ export function renderMap(root: HTMLElement, data: Data, params: URLSearchParams
     paint();
     const fp = document.getElementById("foot-period");
     if (fp) fp.textContent = periodLabel();
-    if (st.selected) select(st.selected);
+    if (lastPlace) showPlace(lastPlace, false);      // 장소 카드도 고른 연도 값으로 다시 그림
+    else if (st.selected) select(st.selected);
+    showSensors();
   };
   const setRange = (a: number, b: number) => {
     range = [a, b];
@@ -325,8 +284,7 @@ export function renderMap(root: HTMLElement, data: Data, params: URLSearchParams
   yearSel.addEventListener("change", () => loadYearData(+yearSel.value));
   const stop = () => {};
   // 배경 지도 전환 + 색 진하기
-  const bmNormal = root.querySelector<HTMLButtonElement>("#bm-normal")!;
-  const bmSat = root.querySelector<HTMLButtonElement>("#bm-sat")!;
+  const bmButtons = [...root.querySelectorAll<HTMLButtonElement>(".basemap button")];
   const op = root.querySelector<HTMLInputElement>("#op")!;
   const opLabel = root.querySelector<HTMLElement>("#oplabel")!;
   const applyOpacity = () => {
@@ -337,68 +295,71 @@ export function renderMap(root: HTMLElement, data: Data, params: URLSearchParams
     map.setPaintProperty("fill", "fill-opacity", v);
     map.setPaintProperty("ext", "fill-extrusion-opacity", off ? 0 : Math.min(1, v + 0.1));
     if (map.getLayer("bfill")) map.setPaintProperty("bfill", "fill-opacity", off ? 0 : Math.min(1, v + 0.05));
-    // 3D 건물도 색을 빼고 회색으로
-    if (map.getLayer("b3d")) map.setPaintProperty("b3d", "fill-extrusion-color", off ? "#b9c0cc" : B3D_COLOR);
     root.querySelector<HTMLElement>(".legend")!.classList.toggle("dim", off);
   };
-  const setBasemap = (sat: boolean) => {
-    bmNormal.setAttribute("aria-pressed", String(!sat));
-    bmSat.setAttribute("aria-pressed", String(sat));
-    if (!map.getLayer("sat")) return;
-    map.setLayoutProperty("sat", "visibility", sat ? "visible" : "none");
-    for (const id of baseDrawLayers) map.setLayoutProperty(id, "visibility", sat ? "none" : "visible");
-    if (buildings3D) for (const id of baseBuildingIds) map.setLayoutProperty(id, "visibility", "none");
-    // 위성 위에서는 동 경계를 흰 선으로, 색은 조금 옅게 해서 사진이 보이게
-    map.setPaintProperty("line", "line-color", sat ? "#ffffff" : "#0b111c");
-    map.setPaintProperty("line", "line-opacity", sat ? 0.55 : 1);
-    op.value = sat ? "50" : "80";
+  const setBasemap = (mode: Basemap) => {
+    bmButtons.forEach((b) => b.setAttribute("aria-pressed", String(b.dataset.bm === mode)));
+    if (!map.getLayer("vw-dark")) return;
+    for (const m of ["dark", "light", "sat"] as Basemap[]) map.setLayoutProperty(`vw-${m}`, "visibility", m === mode ? "visible" : "none");
+    // 밝은 지도·항공사진 위에서는 동 경계를 눈에 띄게, 색은 조금 옅게 해서 바탕이 보이게
+    map.setPaintProperty("line", "line-color", mode === "sat" ? "#ffffff" : mode === "light" ? "#3a4763" : "#0b111c");
+    map.setPaintProperty("line", "line-opacity", mode === "sat" ? 0.55 : 1);
+    op.value = mode === "sat" ? "45" : mode === "light" ? "65" : "80";
     applyOpacity();
   };
-  bmNormal.addEventListener("click", () => setBasemap(false));
-  bmSat.addEventListener("click", () => setBasemap(true));
+  bmButtons.forEach((b) => b.addEventListener("click", () => setBasemap(b.dataset.bm as Basemap)));
   op.addEventListener("input", applyOpacity);
 
   // 3D 기둥(동 전체를 한 덩어리로 세우는 연출용)
   const t3d = root.querySelector<HTMLInputElement>("#t3d")!;
-  const t3b = root.querySelector<HTMLInputElement>("#t3b")!;
   t3d.addEventListener("change", () => {
     const on = t3d.checked;
-    if (on && t3b.checked) { t3b.checked = false; setBuildings3D(false, false); }
     map.setLayoutProperty("ext", "visibility", on ? "visible" : "none");
     map.setLayoutProperty("fill", "visibility", on ? "none" : "visible");
     map.easeTo({ pitch: on ? 55 : 0, bearing: on ? -15 : 0, duration: 700 });
   });
-  // 3D 건물(실제 건물 모양·높이)
-  const setBuildings3D = (on: boolean, move = true) => {
-    if (!map.getLayer("b3d")) return;
-    buildings3D = on;
-    map.setLayoutProperty("b3d", "visibility", on ? "visible" : "none");
-    for (const id of baseBuildingIds) map.setLayoutProperty(id, "visibility", on ? "none" : (bmSat.getAttribute("aria-pressed") === "true" ? "none" : "visible"));
-    if (on) scheduleTag();
-    root.querySelector<HTMLElement>("#b3dnote")!.hidden = !on;
-    if (!move) return;
-    if (on) map.easeTo({ pitch: 62, bearing: -20, zoom: Math.max(map.getZoom(), 15.2), duration: 900 });
-    else map.easeTo({ pitch: 0, bearing: 0, duration: 700 });
-  };
-  t3b.addEventListener("change", () => {
-    if (t3b.checked && t3d.checked) { t3d.checked = false; map.setLayoutProperty("ext", "visibility", "none"); map.setLayoutProperty("fill", "visibility", "visible"); }
-    setBuildings3D(t3b.checked);
-  });
-  root.querySelector<HTMLInputElement>("#tsen")!.addEventListener("change", async (e) => {
-    const on = (e.target as HTMLInputElement).checked;
-    if (!map.getSource("sensors")) {
-      const s = await loadSensors(data);
-      map.addSource("sensors", { type: "geojson", data: { type: "FeatureCollection", features: s.map((x) => ({ type: "Feature", properties: { ...x }, geometry: { type: "Point", coordinates: [x.lon, x.lat] } })) } as any });
-      map.addLayer({ id: "sensors", type: "circle", source: "sensors", paint: {
-        "circle-radius": ["interpolate", ["linear"], ["zoom"], 10, 2, 15, 6],
-        "circle-color": ["case", ["get", "used"], "#ffffff", "#8a93a6"], "circle-stroke-color": "#0b111c", "circle-stroke-width": 1 } });
-      map.on("click", "sensors", (ev) => {
-        const p: any = ev.features?.[0]?.properties; if (!p) return;
-        new maplibregl.Popup().setLngLat(ev.lngLat).setHTML(`<b>센서 ${p.sn}</b><br>${p.rgn_ko}<br>밤 ${p.l_night ?? "—"}dB<br>${p.used ? "동네 대표값에 사용" : p.noise_ok ? "대표값에 쓰지 않음(공원·도로변 등)" : "제외(결측·고장 의심)"}`).addTo(map);
-      });
+  // 실사 3D: 브이월드 3D 지도를 같은 위치로 띄운다 (별도 화면)
+  const v3d = root.querySelector<HTMLElement>("#v3d")!;
+  const v3dFrame = root.querySelector<HTMLIFrameElement>("#v3d-frame")!;
+  const openReal3D = () => {
+    if (!VW_KEY) { alert("브이월드 인증키(VITE_VWORLD_KEY)가 없어 실사 3D를 열 수 없습니다."); return; }
+    const c = marker ? marker.getLngLat() : map.getCenter();
+    const d = st.selected ? data.dongs[st.selected] : null;
+    const v = d ? valueOf(srcOf(d.code)) : null;
+    const q = new URLSearchParams({ lon: c.lng.toFixed(6), lat: c.lat.toFixed(6) });
+    if (d && map.getZoom() >= 12.5) {            // 동을 보고 있을 때만 경계선을 함께 그린다
+      q.set("code", d.code);
+      q.set("color", v != null ? colorFor(v) : "#ffffff");
     }
-    map.setLayoutProperty("sensors", "visibility", on ? "visible" : "none");
-  });
+    root.querySelector("#v3d-title")!.textContent = d ? `실사 3D · ${d.gu} ${d.name}${v != null ? ` · ${year}년 ${rangeLabel()} ${v.toFixed(1)}dB` : ""}` : "실사 3D";
+    v3dFrame.src = `${import.meta.env.BASE_URL}vworld3d.html?${q}`;
+    v3d.hidden = false;
+  };
+  root.querySelector<HTMLButtonElement>("#real3d")!.addEventListener("click", openReal3D);
+  root.querySelector<HTMLButtonElement>("#v3d-close")!.addEventListener("click", () => { v3d.hidden = true; v3dFrame.src = "about:blank"; });
+  const tsen = root.querySelector<HTMLInputElement>("#tsen")!;
+  let sensorYear: number | null = null;
+  const showSensors = async () => {
+    if (!year) return;
+    if (tsen.checked && sensorYear !== year) {
+      const sy = year;
+      const list = await loadSensors(sy);
+      const fc: any = { type: "FeatureCollection", features: list.map((x) => ({ type: "Feature", properties: { ...x }, geometry: { type: "Point", coordinates: [x.lon, x.lat] } })) };
+      if (!map.getSource("sensors")) {
+        map.addSource("sensors", { type: "geojson", data: fc });
+        map.addLayer({ id: "sensors", type: "circle", source: "sensors", paint: {
+          "circle-radius": ["interpolate", ["linear"], ["zoom"], 10, 2, 15, 6],
+          "circle-color": ["case", ["get", "used"], "#ffffff", "#8a93a6"], "circle-stroke-color": "#0b111c", "circle-stroke-width": 1 } });
+        map.on("click", "sensors", (ev) => {
+          const p: any = ev.features?.[0]?.properties; if (!p) return;
+          new maplibregl.Popup().setLngLat(ev.lngLat).setHTML(`<b>센서 ${p.sn}</b><br>${p.rgn_ko}<br>${year}년 밤 ${p.l_night ?? "—"}dB<br>${p.used ? "동네 대표값에 사용" : p.noise_ok ? "대표값에 쓰지 않음(공원·도로변 등)" : "제외(결측·고장 의심)"}`).addTo(map);
+        });
+      } else (map.getSource("sensors") as maplibregl.GeoJSONSource).setData(fc);
+      sensorYear = sy;
+    }
+    if (map.getLayer("sensors")) map.setLayoutProperty("sensors", "visibility", tsen.checked ? "visible" : "none");
+  };
+  tsen.addEventListener("change", showSensors);
   root.querySelector<HTMLInputElement>("#tbld")!.addEventListener("change", async (e) => {
     const el = e.target as HTMLInputElement;
     const b = await loadBuildings(data);
@@ -451,16 +412,20 @@ export function renderMap(root: HTMLElement, data: Data, params: URLSearchParams
   });
 
   let marker: maplibregl.Marker | null = null;
+  let lastPlace: Place | null = null;
   const clearPlace = () => {
+    lastPlace = null;
     marker?.remove(); marker = null;
     (map.getSource("near") as maplibregl.GeoJSONSource | undefined)?.setData({ type: "FeatureCollection", features: [] });
   };
-  const showPlace = async (p: Place) => {
+  const showPlace = async (p: Place, fly = true) => {
     const code = dongAt(data, p.lon, p.lat);
     if (!code) return;
-    const sensors = await loadSensors(data);
+    if (!year) { lastPlace = p; return; }          // 연도 자료가 오면 refresh()가 다시 부른다
+    const sensors = await loadSensors(year);
     const near = nearestSensors(sensors, p.lon, p.lat);
     clearPlace();
+    lastPlace = p;
     marker = new maplibregl.Marker({ color: "#f5b041" }).setLngLat([p.lon, p.lat]).addTo(map);
     const fc: any = { type: "FeatureCollection", features: near.flatMap((n, i) => [
       { type: "Feature", properties: { kind: "line" }, geometry: { type: "LineString", coordinates: [[p.lon, p.lat], [n.s.lon, n.s.lat]] } },
@@ -474,9 +439,11 @@ export function renderMap(root: HTMLElement, data: Data, params: URLSearchParams
         paint: { "circle-radius": 9, "circle-color": step(["get", "v"]) as any, "circle-stroke-color": "#ffffff", "circle-stroke-width": 2 } });
     } else (map.getSource("near") as maplibregl.GeoJSONSource).setData(fc);
     select(code);
-    map.flyTo({ center: [p.lon, p.lat], zoom: 15, duration: 700 });
+    if (fly) map.flyTo({ center: [p.lon, p.lat], zoom: 15, duration: 700 });
     history.replaceState(null, "", `#/map?d=${code}&p=${p.lat.toFixed(5)},${p.lon.toFixed(5)}&n=${encodeURIComponent(p.name)}`);
-    panel.prepend(placeCard(p, data.dongs[code], near));
+    const yd = { ...data.dongs[code], ...(yearDongs?.[code] ?? { l_night: null }) } as Dong;
+    panel.querySelector(".placecard")?.remove();
+    panel.prepend(placeCard(p, yd, near, year));
   };
 
   // 공유한 주소로 들어오면 장소 다시 표시
@@ -484,7 +451,7 @@ export function renderMap(root: HTMLElement, data: Data, params: URLSearchParams
   if (pp) {
     const [lat, lon] = pp.split(",").map(Number);
     const pl: Place = { name: params.get("n") ?? "선택한 장소", addr: "", lat, lon };
-    map.once("idle", () => showPlace(pl));
+    showPlace(pl);
   }
   return () => { stop(); map.remove(); };
 }
