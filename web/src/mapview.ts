@@ -8,7 +8,6 @@ const BUILDING_DEFAULT = "#8a93a6"; // 동 경계에 걸치거나 데이터 없�
 const B3D_COLOR: any = ["match", ["to-number", ["feature-state", "c"], -1], ...COLORS.flatMap((c, i) => [i, c]), BUILDING_DEFAULT];
 import { type Data, type Dong, HOURS, fmt, loadBuildings, loadSensors, sortedDongs } from "./data";
 import { type Near, type Place, dongAt, makeDongLocator, nearestSensors, searchPlaces } from "./place";
-import { attachPlaces } from "./places-layer";
 import { renderReport } from "./report";
 
 function escHtml(s: string) {
@@ -54,7 +53,6 @@ export function renderMap(root: HTMLElement, data: Data, params: URLSearchParams
   root.innerHTML = `
   <div class="mapgrid">
     <section class="mapwrap" aria-label="서울의 밤 지도">
-      <div id="plbar" class="plbar"></div>
       <div id="map" role="application" aria-label="행정동별 밤 소음 지도. 아래 검색창으로도 동네를 고를 수 있습니다."></div>
       <div class="ctrl">
         <form class="search" id="qform" role="search">
@@ -241,8 +239,6 @@ export function renderMap(root: HTMLElement, data: Data, params: URLSearchParams
     map.addLayer({ id: "sel", type: "line", source: "dongs", filter: ["==", ["get", "code"], ""], paint: { "line-color": "#ffffff", "line-width": 2.5 } });
     paint();
     if (st.selected) select(st.selected, true);
-    // 생활시설 점 (상가정보) — 가장 위에 그린다
-    attachPlaces(map, root.querySelector<HTMLElement>("#plbar")!, data);
 
     const pop = new maplibregl.Popup({ closeButton: false, closeOnClick: false, className: "tip" });
     map.on("mousemove", "fill", (e) => {

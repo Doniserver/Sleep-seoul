@@ -1,7 +1,6 @@
 import { calendar, dbScale, heatmap } from "./charts";
 import { colorFor } from "./colors";
-import { type Data, type Dong, fmt, loadBuildings, loadCalendar, loadPlacesSummary } from "./data";
-import { placeSummaryHtml } from "./places-layer";
+import { type Data, type Dong, fmt, loadBuildings, loadCalendar } from "./data";
 
 function esc(s: string) {
   return s.replace(/[&<>"']/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]!));
@@ -23,11 +22,8 @@ export async function renderReport(el: HTMLElement, data: Data, d: Dong, opts: {
   const t = data.meta.thresholds;
   const pat = data.patterns.find((p) => p.name === d.pattern);
   if (d.l_night == null) {
-    el.innerHTML = `<h2>${esc(d.gu)} ${esc(d.name)}</h2><div data-x="facil"></div>
-      <h3 class="sec">밤 바깥 소음</h3>
+    el.innerHTML = `<h2>${esc(d.gu)} ${esc(d.name)}</h2>
       <p class="empty">이 동에는 쓸 수 있는 센서가 없어 값을 계산하지 않았습니다. 주변 동 값으로 메우지 않습니다.</p>`;
-    const sum = await loadPlacesSummary();
-    if (sum) el.querySelector<HTMLElement>('[data-x="facil"]')!.innerHTML = placeSummaryHtml(sum, d.code);
     return;
   }
   const floorNote = d.l_night <= t.noise_floor + 0.5 ? `<p class="hint">센서가 잴 수 있는 가장 작은 값이 ${t.noise_floor}dB라서, 실제로는 이보다 더 조용할 수 있습니다.</p>` : "";
@@ -36,8 +32,6 @@ export async function renderReport(el: HTMLElement, data: Data, d: Dong, opts: {
       <h2>${esc(d.gu)} <span>${esc(d.name)}</span></h2>
       ${pat ? `<span class="badge" title="${esc(pat.desc)}">${esc(pat.name)}</span>` : ""}
     </div>
-    <div data-x="facil"></div>
-    <h3 class="sec">밤 바깥 소음</h3>
     <div class="big">
       <div><span class="chip" style="background:${colorFor(d.l_night)}" aria-hidden="true"></span><span class="num">${fmt(d.l_night)}</span><span class="unit">dB</span>
         <p class="lbl">밤(22~06시) 평균 소음 · 에너지 평균</p></div>
@@ -68,7 +62,6 @@ export async function renderReport(el: HTMLElement, data: Data, d: Dong, opts: {
     ${opts.onCompare ? `<div class="actions"><button type="button" data-x="cmp">이 동네를 비교에 담기</button></div>` : ""}
   `;
   const q = (k: string) => el.querySelector<HTMLElement>(`[data-x="${k}"]`)!;
-  loadPlacesSummary().then((sum) => { if (sum) q("facil").innerHTML = placeSummaryHtml(sum, d.code); });
   dbScale(q("scale"), d.l_night, data.meta.seoul.l_night_median, t);
   heatmap(q("heat"), d.heatmap, `${d.name} 요일×시간 소음`);
   if (opts.onCompare) q("cmp").addEventListener("click", () => opts.onCompare!(d.code));

@@ -1,6 +1,6 @@
 import { heatmap, hourLines } from "./charts";
 import { colorFor } from "./colors";
-import { type Data, type Dong, PLACE_COLORS, fmt, loadPlacesSummary, sortedDongs } from "./data";
+import { type Data, type Dong, fmt, sortedDongs } from "./data";
 import { renderBuildingsSummary } from "./report";
 
 const C1 = "#8fd0ff", C2 = "#f5b041";
@@ -53,27 +53,12 @@ export function renderCompare(root: HTMLElement, data: Data, params: URLSearchPa
         </tbody>
       </table>
       <p class="hint">"더 좋음"은 차이가 1 이상일 때만 표시합니다. 소음 1dB 미만 차이는 사람이 거의 구별하지 못합니다.</p>
-      <div id="cfacil"></div>
       <div class="cgrid">
         <section><h3>밤 시간대별 소음</h3><div id="lines" class="chart"></div></section>
         <section><h3><span class="sw" style="background:${C1}"></span>${A.name} 요일×시간</h3><div id="ha" class="chart"></div></section>
         <section><h3><span class="sw" style="background:${C2}"></span>${B.name} 요일×시간</h3><div id="hb" class="chart"></div></section>
         <section id="ba"></section><section id="bb"></section>
       </div>`;
-    loadPlacesSummary().then((sum) => {
-      if (!sum) return;
-      const ca = sum.dongs[A.code] ?? {}, cb = sum.dongs[B.code] ?? {};
-      out.querySelector("#cfacil")!.innerHTML = `<h3>생활시설 비교</h3>
-        <table class="ctable"><caption class="sr">두 동네 생활시설 개수</caption>
-        <thead><tr><th scope="col">시설</th><th scope="col">${A.name}</th><th scope="col">${B.name}</th><th scope="col">서울 동 중앙값</th></tr></thead><tbody>
-        ${sum.categories.filter((c) => c.key !== "etc").map((c) => {
-          const a = ca[c.key] ?? 0, b = cb[c.key] ?? 0;
-          return `<tr><th scope="row"><span class="dot" style="background:${PLACE_COLORS[c.key]}"></span> ${c.name}</th>
-            <td class="${a > b ? "win" : ""}">${a.toLocaleString()}</td><td class="${b > a ? "win" : ""}">${b.toLocaleString()}</td>
-            <td>${Math.round(sum.seoul_median[c.key] ?? 0)}</td></tr>`;
-        }).join("")}</tbody></table>
-        <p class="hint">${sum.source.name} ${sum.stdrYm.slice(0, 4)}년 ${+sum.stdrYm.slice(4)}월 기준 · 많을수록 강조(많다고 항상 좋은 것은 아닙니다. 술집이 많으면 밤에 시끄러울 수 있습니다).</p>`;
-    });
     hourLines(out.querySelector("#lines")!, [
       { label: A.name, color: C1, byHour: A.by_hour }, { label: B.name, color: C2, byHour: B.by_hour },
     ], data.meta.thresholds);
