@@ -5,6 +5,7 @@ import workerUrl from "maplibre-gl/dist/maplibre-gl-worker.mjs?url";
 import { BREAKS, COLORS, LABELS, NODATA, colorFor, step } from "./colors";
 
 const BUILDING_DEFAULT = "#8a93a6"; // 동 경계에 걸치거나 데이터 없는 동의 건물
+const B3D_COLOR: any = ["match", ["to-number", ["feature-state", "c"], -1], ...COLORS.flatMap((c, i) => [i, c]), BUILDING_DEFAULT];
 import { type Data, type Dong, HOURS, fmt, loadBuildings, loadSensors, sortedDongs } from "./data";
 import { type Near, type Place, dongAt, makeDongLocator, nearestSensors, searchPlaces } from "./place";
 import { attachPlaces } from "./places-layer";
@@ -82,7 +83,7 @@ export function renderMap(root: HTMLElement, data: Data, params: URLSearchParams
           <button type="button" id="bm-sat" aria-pressed="false">위성 지도</button>
         </div>
         <label class="opacity">색 진하기 <span id="oplabel">80%</span>
-          <input type="range" id="op" min="20" max="100" step="5" value="80" aria-describedby="oplabel" />
+          <input type="range" id="op" min="0" max="100" step="5" value="80" aria-describedby="oplabel" />
         </label>
         <div class="row toggles">
           <label><input type="checkbox" id="t3b" /> 3D 건물</label>
@@ -223,7 +224,7 @@ export function renderMap(root: HTMLElement, data: Data, params: URLSearchParams
     if (bldBase) {
       baseBuildingIds = map.getStyle().layers.filter((l: any) => l["source-layer"] === "building").map((l) => l.id);
       bldSource = bldBase.source;
-      const bcolor: any = ["match", ["to-number", ["feature-state", "c"], -1], ...COLORS.flatMap((c, i) => [i, c]), BUILDING_DEFAULT];
+      const bcolor: any = B3D_COLOR;
       map.addLayer({ id: "b3d", type: "fill-extrusion", source: bldBase.source, "source-layer": "building", minzoom: 13,
         layout: { visibility: "none" }, filter: ["!=", ["get", "hide_3d"], true],
         paint: {
@@ -287,11 +288,15 @@ export function renderMap(root: HTMLElement, data: Data, params: URLSearchParams
   const opLabel = root.querySelector<HTMLElement>("#oplabel")!;
   const applyOpacity = () => {
     const v = +op.value / 100;
-    opLabel.textContent = `${op.value}%`;
+    const off = v === 0; // 0% = 소음 색 없이 배경 지도만
+    opLabel.textContent = off ? "0% (색 끔 · 지도만 보기)" : `${op.value}%`;
     if (!map.getLayer("fill")) return;
     map.setPaintProperty("fill", "fill-opacity", v);
-    map.setPaintProperty("ext", "fill-extrusion-opacity", Math.min(1, v + 0.1));
-    if (map.getLayer("bfill")) map.setPaintProperty("bfill", "fill-opacity", Math.min(1, v + 0.05));
+    map.setPaintProperty("ext", "fill-extrusion-opacity", off ? 0 : Math.min(1, v + 0.1));
+    if (map.getLayer("bfill")) map.setPaintProperty("bfill", "fill-opacity", off ? 0 : Math.min(1, v + 0.05));
+    // 3D 건물도 색을 빼고 회색으로
+    if (map.getLayer("b3d")) map.setPaintProperty("b3d", "fill-extrusion-color", off ? "#b9c0cc" : B3D_COLOR);
+    root.querySelector<HTMLElement>(".legend")!.classList.toggle("dim", off);
   };
   const setBasemap = (sat: boolean) => {
     bmNormal.setAttribute("aria-pressed", String(!sat));

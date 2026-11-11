@@ -201,3 +201,4 @@ h3.sec { margin-top: 18px; padding-top: 12px; border-top: 1px solid var(--line);
   .mapgrid { grid-template-columns: minmax(0, 1fr); }
   .mapwrap, .plbar, .chips { min-width: 0; max-width: 100%; }
 }
+.legend.dim #nlegend { opacity: 0.4; }
