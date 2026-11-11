@@ -18,44 +18,105 @@
     <div id="map"></div>
     <div id="msg" role="status">실사 3D 지도를 불러오는 중…</div>
     <script>
+      // 사이트(부모 창)가 이 화면을 지도 자리에 겹쳐 띄우고, 위치·동이 바뀌면 메시지로 알려 준다.
       (function () {
         var msg = document.getElementById("msg");
         var q = new URLSearchParams(location.search);
-        var lon = parseFloat(q.get("lon")) || 126.978, lat = parseFloat(q.get("lat")) || 37.5665;
         if (typeof vw === "undefined") {
           msg.textContent = "브이월드 3D 지도를 불러오지 못했습니다. 인증키와 등록한 사이트 주소를 확인해 주세요.";
           return;
         }
+        var TILT = 35;
         // 목표 지점을 비스듬히 내려다보도록 카메라를 남쪽 위에 둔다
-        var H = 650, tilt = 35, back = H / Math.tan((tilt * Math.PI) / 180);
+        function camera(lon, lat, h) {
+          var back = h / Math.tan((TILT * Math.PI) / 180);
+          return new vw.CameraPosition(new vw.CoordZ(lon, lat - back / 111320, h), new vw.Direction(0, -TILT, 0));
+        }
+        var state = { lon: parseFloat(q.get("lon")) || 126.978, lat: parseFloat(q.get("lat")) || 37.5665,
+                      height: parseFloat(q.get("height")) || 650, code: q.get("code") || "", color: q.get("color") || "#ffffff" };
         var map = new vw.Map();
-        map.setOption({
-          mapId: "map",
-          initPosition: new vw.CameraPosition(new vw.CoordZ(lon, lat - back / 111320, H), new vw.Direction(0, -tilt, 0)),
-          logo: true,
-          navigation: true,
-        });
+        map.setOption({ mapId: "map", initPosition: camera(state.lon, state.lat, state.height), logo: true, navigation: true });
         map.start();
         setTimeout(function () { msg.hidden = true; }, 2500);
 
-        vw.ws3dInitCallBack = function () {
-          msg.hidden = true;
-          var code = q.get("code");
-          if (!code || typeof Cesium === "undefined") return;
-          var color = Cesium.Color.fromCssColorString(q.get("color") || "#ffffff");
-          fetch("data/dongs.geojson").then(function (r) { return r.json(); }).then(function (g) {
-            var f = g.features.find(function (x) { return x.properties.code === code; });
+        var ready = false, geo = null, lines = [], drawn = null;
+        // 브이월드 3D는 필요할 때만 화면을 다시 그린다. 카메라·선을 바꾼 뒤 한동안 다시 그리기를 요청해
+        // 새 위치의 지형·건물이 들어오는 대로 보이게 한다 (안 하면 예전 화면에 멈춰 있음)
+        var kickTimer = null;
+        function kick(seconds) {
+          var until = Date.now() + seconds * 1000;
+          if (kickTimer) clearInterval(kickTimer);
+          kickTimer = setInterval(function () {
+            try { ws3d.viewer.scene.requestRender(); } catch (e) { /* 아직 준비 전 */ }
+            if (Date.now() > until) { clearInterval(kickTimer); kickTimer = null; }
+          }, 200);
+        }
+        // 목표 지점이 화면 한가운데 오도록 카메라를 맞춘다 (준비되기 전에는 브이월드 기본 이동을 쓴다)
+        function go(seconds) {
+          if (ready && typeof Cesium !== "undefined") {
+            var target = new Cesium.BoundingSphere(Cesium.Cartesian3.fromDegrees(state.lon, state.lat, 30), 1);
+            var range = state.height / Math.sin((TILT * Math.PI) / 180);
+            ws3d.viewer.camera.flyToBoundingSphere(target, { duration: seconds, offset: new Cesium.HeadingPitchRange(0, -(TILT * Math.PI) / 180, range) });
+          } else map.moveTo(camera(state.lon, state.lat, state.height));
+          kick(10);
+        }
+        function outline() {
+          if (!ready || typeof Cesium === "undefined") return;
+          var key = state.code + "|" + state.color;
+          if (key === drawn) return;
+          drawn = key;
+          lines.forEach(function (e) { ws3d.viewer.entities.remove(e); });
+          lines = [];
+          if (!state.code) return;
+          var draw = function () {
+            var f = geo.features.find(function (x) { return x.properties.code === state.code; });
             if (!f) return;
+            var color = Cesium.Color.fromCssColorString(state.color);
             var polys = f.geometry.type === "Polygon" ? [f.geometry.coordinates] : f.geometry.coordinates;
             polys.forEach(function (poly) {
               var flat = [];
               poly[0].forEach(function (c) { flat.push(c[0], c[1]); });
+              var pos = Cesium.Cartesian3.fromDegreesArray(flat);
               // 동 경계선만 땅 위에 그린다 (면을 칠하면 실제 건물 모습이 가려짐)
-              ws3d.viewer.entities.add({ polyline: { positions: Cesium.Cartesian3.fromDegreesArray(flat), width: 5, material: color, clampToGround: true } });
-              ws3d.viewer.entities.add({ polyline: { positions: Cesium.Cartesian3.fromDegreesArray(flat), width: 1.5, material: Cesium.Color.WHITE, clampToGround: true } });
+              lines.push(ws3d.viewer.entities.add({ polyline: { positions: pos, width: 5, material: color, clampToGround: true } }));
+              lines.push(ws3d.viewer.entities.add({ polyline: { positions: pos, width: 1.5, material: Cesium.Color.WHITE, clampToGround: true } }));
             });
-          });
+          };
+          if (geo) { draw(); kick(3); }
+          else fetch("data/dongs.geojson").then(function (r) { return r.json(); }).then(function (g) { geo = g; draw(); kick(3); });
+        }
+
+        // 지금 화면 가운데가 가리키는 땅의 좌표를 부모 창에 알려 준다 (2D 지도로 돌아갈 때 같은 곳을 보도록)
+        function report() {
+          try {
+            var v = ws3d.viewer, cv = v.canvas;
+            var p = v.camera.pickEllipsoid(new Cesium.Cartesian2(cv.clientWidth / 2, cv.clientHeight / 2));
+            if (!p) return;
+            var c = Cesium.Cartographic.fromCartesian(p);
+            parent.postMessage({ type: "jamjal-3d-pos", lon: Cesium.Math.toDegrees(c.longitude), lat: Cesium.Math.toDegrees(c.latitude) }, location.origin);
+          } catch (e) { /* 위치를 못 구하면 알리지 않는다 */ }
+        }
+
+        vw.ws3dInitCallBack = function () {
+          ready = true;
+          msg.hidden = true;
+          // 브이월드가 처음 위치로 날아가는 동작이 끝난 뒤에 정확히 맞춘다 (바로 부르면 처음 이동이 끊겨 먼 우주에서 멈춤)
+          setTimeout(function () { go(0.8); }, 1500);
+          outline();
+          try { ws3d.viewer.camera.moveEnd.addEventListener(report); } catch (e) { /* 이벤트가 없으면 건너뜀 */ }
         };
+
+        window.addEventListener("message", function (e) {
+          if (e.origin !== location.origin || !e.data || e.data.type !== "jamjal-3d") return;
+          var d = e.data;
+          state.code = d.code || ""; state.color = d.color || "#ffffff";
+          if (d.move !== false && isFinite(d.lon) && isFinite(d.lat)) {
+            state.lon = d.lon; state.lat = d.lat; state.height = d.height || state.height;
+            go(0.8);
+          }
+          outline();
+          kick(d.move !== false ? 10 : 3);
+        });
       })();
     </script>
   </body>

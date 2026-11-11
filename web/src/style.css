@@ -185,23 +185,27 @@ body[data-route="map"] .foot { padding-top: 8px; }
 .rangebox span:last-child { font-size: 12.5px; color: var(--ink-2); }
 .cyear { display: inline-grid; gap: 4px; color: var(--ink-2); margin: 4px 0 10px; min-width: 200px; }
 
-/* 브이월드 실사 3D 화면 (지도 위에 덮어서 띄움) */
-.real3d { width: 100%; padding: 8px 10px; border-radius: 8px; border: 1px solid var(--accent); background: transparent; color: var(--ink); font-weight: 700; }
-.real3d:hover { background: var(--panel-2); }
-.real3d small { color: var(--ink-2); font-weight: 400; margin-left: 4px; }
-.v3d { position: absolute; inset: 0; z-index: 8; background: #0b111c; display: flex; flex-direction: column; }
+/* 브이월드 실사 3D: 지도 자리에 그대로 겹쳐 보여 준다 (조작 상자는 그 위에 남음) */
+.v3d { position: absolute; inset: 0; z-index: 1; background: #0b111c; }
 .v3d[hidden] { display: none; }
-.v3d-bar { display: flex; align-items: center; justify-content: space-between; gap: 10px; padding: 8px 12px; background: var(--panel); border-bottom: 1px solid var(--line); font-weight: 700; }
-.v3d-bar button { padding: 6px 12px; border-radius: 8px; border: 1px solid var(--accent); background: var(--accent); color: #111; font-weight: 700; }
-.v3d iframe { flex: 1; width: 100%; border: 0; min-height: 0; }
-.v3d-note { margin: 0; padding: 6px 12px; font-size: 12px; color: var(--ink-2); background: var(--panel); border-top: 1px solid var(--line); }
+.v3d iframe { position: absolute; inset: 0; width: 100%; height: 100%; border: 0; }
+.v3d-chip { position: absolute; top: 12px; left: 50%; transform: translateX(-50%); margin: 0; padding: 5px 12px; border-radius: 999px; background: rgba(15, 22, 38, 0.92); border: 1px solid var(--accent); color: var(--ink); font-size: 13px; font-weight: 700; white-space: nowrap; max-width: 60%; overflow: hidden; text-overflow: ellipsis; pointer-events: none; }
+.v3d-chip:empty { display: none; }
+.v3d-note { position: absolute; left: 50%; bottom: 26px; transform: translateX(-50%); margin: 0; padding: 4px 10px; border-radius: 6px; font-size: 11.5px; color: var(--ink-2); background: rgba(15, 22, 38, 0.88); max-width: 70%; text-align: center; pointer-events: none; }
 .ctrl .basemap { flex-wrap: wrap; }
 .ctrl .basemap button { font-size: 12.5px; padding: 6px 4px; }
-@media (max-width: 900px) { .v3d { position: fixed; } }
+@media (max-width: 900px) {
+  /* 휴대폰: 지도 칸(위쪽)에만 겹치게 */
+  .v3d { inset: 0 0 auto 0; height: 58vh; min-height: 340px; }
+  .v3d-note { display: none; }
+  .v3d-chip { max-width: 80%; }
+}
 
 /* 보기 방식 3버튼 */
 .ctrl .basemap button { font-size: 13.5px; padding: 8px 4px; }
 .lightopt { display: flex !important; align-items: center; gap: 5px; color: var(--ink-2); font-size: 12.5px; margin-top: -4px; }
-.v3d-back { display: inline-flex; gap: 6px; }
-.v3d-bar .v3d-back button { background: var(--panel-2); color: var(--ink); border-color: var(--line); }
-.v3d-bar .v3d-back button[aria-pressed="true"] { background: var(--accent); color: #111; border-color: var(--accent); }
+/* 2D 지도의 확대 버튼·출처 표시가 3D 위로 올라오지 않게 지도 칸을 한 층으로 묶는다 */
+#map { z-index: 0; }
+@media (min-width: 901px) {
+  .v3d-chip, .v3d-note { left: calc(50% + 160px); max-width: calc(100% - 420px); }
+}

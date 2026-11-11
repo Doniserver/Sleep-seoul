@@ -68,9 +68,8 @@ export function renderMap(root: HTMLElement, data: Data, params: URLSearchParams
   <div class="mapgrid">
     <section class="mapwrap" aria-label="서울의 밤 지도">
       <div id="v3d" class="v3d" hidden>
-        <div class="v3d-bar"><span id="v3d-title">실사 3D</span>
-          <span class="v3d-back" role="group" aria-label="지도 보기 방식"><button type="button" data-view="map">배경지도</button><button type="button" data-view="sat">실사 2D</button><button type="button" data-view="3d" aria-pressed="true">실사 3D</button></span></div>
         <iframe id="v3d-frame" title="브이월드 실사 3D 지도" allow="fullscreen"></iframe>
+        <p class="v3d-chip" id="v3d-title" aria-live="polite"></p>
         <p class="v3d-note">실제 건물 모습은 브이월드(국토교통부) 3D 지도입니다. 선은 고른 동의 경계이고, 소음 값은 건물마다 잰 것이 아니라 동 대표값입니다.</p>
       </div>
       <div id="map" role="application" aria-label="행정동별 밤 소음 지도. 아래 검색창으로도 동네를 고를 수 있습니다."></div>
@@ -194,9 +193,11 @@ export function renderMap(root: HTMLElement, data: Data, params: URLSearchParams
   };
 
   const panel = root.querySelector<HTMLElement>("#panel")!;
+  let pendingFly = false;
   const select = (code: string, fly = false) => {
     const d = data.dongs[code];
-    if (!d || !year) return;
+    if (!d) return;
+    if (!year) { st.selected = code; pendingFly = pendingFly || fly; return; }   // 연도 자료가 오면 refresh()가 이어서 처리
     st.selected = code;
     history.replaceState(null, "", `#/map?d=${code}`);
     map.setFilter("sel", ["==", ["get", "code"], code]);
@@ -206,13 +207,14 @@ export function renderMap(root: HTMLElement, data: Data, params: URLSearchParams
     const shown = { ...d, ...(yd ?? { l_night: null, pattern: undefined }), report: null } as Dong;
     renderReport(panel, data, shown, { onCompare, year, periodLabel: periodLabel(),
       range: isNight() ? undefined : { label: rangeLabel(), value: valueOf(yd ?? null) } });
+    if (view3D()) { v3dCenter = null; setTimeout(() => sync3D(fly), fly ? 50 : 0); }
     if (fly) {
       const f = data.geo.features.find((x) => (x.properties as any).code === code);
       if (f) {
         const b = new maplibregl.LngLatBounds();
         const walk = (c: any) => (typeof c[0] === "number" ? b.extend(c as [number, number]) : c.forEach(walk));
         walk((f.geometry as any).coordinates);
-        map.fitBounds(b, { padding: 60, maxZoom: 14, duration: 600 });
+        map.fitBounds(b, { padding: 60, maxZoom: 14, duration: view3D() ? 0 : 600 });
       }
     }
   };
@@ -257,7 +259,7 @@ export function renderMap(root: HTMLElement, data: Data, params: URLSearchParams
     const fp = document.getElementById("foot-period");
     if (fp) fp.textContent = periodLabel();
     if (lastPlace) showPlace(lastPlace, false);      // 장소 카드도 고른 연도 값으로 다시 그림
-    else if (st.selected) select(st.selected);
+    else if (st.selected) { const f = pendingFly; pendingFly = false; select(st.selected, f); }
     showSensors();
   };
   const setRange = (a: number, b: number) => {
@@ -299,8 +301,7 @@ export function renderMap(root: HTMLElement, data: Data, params: URLSearchParams
     root.querySelector<HTMLElement>(".legend")!.classList.toggle("dim", off);
   };
   const setBasemap = (mode: Basemap) => {
-    viewButtons.forEach((b) => b.setAttribute("aria-pressed", String(b.dataset.view === (mode === "sat" ? "sat" : "map"))));
-    bmLight.disabled = mode === "sat";
+    markView(mode === "sat" ? "sat" : "map");
     if (!map.getLayer("vw-dark")) return;
     for (const m of ["dark", "light", "sat"] as Basemap[]) map.setLayoutProperty(`vw-${m}`, "visibility", m === mode ? "visible" : "none");
     // 밝은 지도·항공사진 위에서는 동 경계를 눈에 띄게, 색은 조금 옅게 해서 바탕이 보이게
@@ -310,6 +311,10 @@ export function renderMap(root: HTMLElement, data: Data, params: URLSearchParams
     applyOpacity();
   };
   // 보기 방식 3가지: 배경지도 / 실사 2D(항공사진) / 실사 3D(브이월드 3D 화면)
+  const markView = (v: "map" | "sat" | "3d") => {
+    viewButtons.forEach((b) => b.setAttribute("aria-pressed", String(b.dataset.view === v)));
+    bmLight.disabled = v !== "map";
+  };
   const setView = (v: string) => {
     if (v === "3d") { openReal3D(); return; }
     closeReal3D();
@@ -330,21 +335,41 @@ export function renderMap(root: HTMLElement, data: Data, params: URLSearchParams
   // 실사 3D: 브이월드 3D 지도를 같은 위치로 띄운다 (별도 화면)
   const v3d = root.querySelector<HTMLElement>("#v3d")!;
   const v3dFrame = root.querySelector<HTMLIFrameElement>("#v3d-frame")!;
-  const openReal3D = () => {
-    if (!VW_KEY) { alert("브이월드 인증키(VITE_VWORLD_KEY)가 없어 실사 3D를 열 수 없습니다."); return; }
+  // 같은 지도 자리에 3D를 겹쳐 보여 준다. 한 번 불러온 3D는 켜 둔 채 위치·동만 바꿔서 바로 전환되게 한다
+  let v3dLoaded = false;
+  let v3dCenter: { lon: number; lat: number } | null = null;   // 3D에서 보고 있던 곳 (2D로 돌아올 때 맞춤)
+  const view3D = () => !v3d.hidden;
+  const sync3D = (move = true) => {
     const c = marker ? marker.getLngLat() : map.getCenter();
     const d = st.selected ? data.dongs[st.selected] : null;
     const v = d ? valueOf(srcOf(d.code)) : null;
-    const q = new URLSearchParams({ lon: c.lng.toFixed(6), lat: c.lat.toFixed(6) });
-    if (d && map.getZoom() >= 12.5) {            // 동을 보고 있을 때만 경계선을 함께 그린다
-      q.set("code", d.code);
-      q.set("color", v != null ? colorFor(v) : "#ffffff");
-    }
-    root.querySelector("#v3d-title")!.textContent = d ? `실사 3D · ${d.gu} ${d.name}${v != null ? ` · ${year}년 ${rangeLabel()} ${v.toFixed(1)}dB` : ""}` : "실사 3D";
-    v3dFrame.src = `${import.meta.env.BASE_URL}vworld3d.html?${q}`;
-    v3d.hidden = false;
+    const showDong = !!d && map.getZoom() >= 12.5;          // 동을 보고 있을 때만 경계선을 함께 그린다
+    const height = Math.max(300, Math.min(30000, 700 * 2 ** (15 - map.getZoom())));
+    const msg = { type: "jamjal-3d", move, lon: +c.lng.toFixed(6), lat: +c.lat.toFixed(6), height: Math.round(height),
+      code: showDong ? d!.code : "", color: showDong && v != null ? colorFor(v) : "#ffffff" };
+    root.querySelector("#v3d-title")!.textContent = d ? `${d.gu} ${d.name}${v != null ? ` · ${year}년 ${rangeLabel()} ${v.toFixed(1)}dB` : " · 데이터 없음"}` : "";
+    if (!v3dLoaded) {
+      const q = new URLSearchParams(Object.entries(msg).filter(([k]) => k !== "type" && k !== "move").map(([k, x]) => [k, String(x)]));
+      v3dFrame.src = `${import.meta.env.BASE_URL}vworld3d.html?${q}`;
+      v3dLoaded = true;
+    } else v3dFrame.contentWindow?.postMessage(msg, location.origin);
   };
-  const closeReal3D = () => { if (!v3d.hidden) { v3d.hidden = true; v3dFrame.src = "about:blank"; } };
+  const openReal3D = () => {
+    if (!VW_KEY) { alert("브이월드 인증키(VITE_VWORLD_KEY)가 없어 실사 3D를 열 수 없습니다."); return; }
+    v3d.hidden = false;
+    markView("3d");
+    sync3D();
+  };
+  const closeReal3D = () => {
+    if (v3d.hidden) return;
+    v3d.hidden = true;
+    if (v3dCenter) map.jumpTo({ center: [v3dCenter.lon, v3dCenter.lat] });   // 3D에서 옮겨 간 곳을 2D에서도 이어서 봄
+  };
+  const on3DMessage = (e: MessageEvent) => {
+    if (e.origin !== location.origin || e.data?.type !== "jamjal-3d-pos") return;
+    if (Number.isFinite(e.data.lon) && Number.isFinite(e.data.lat)) v3dCenter = { lon: e.data.lon, lat: e.data.lat };
+  };
+  window.addEventListener("message", on3DMessage);
   const tsen = root.querySelector<HTMLInputElement>("#tsen")!;
   let sensorYear: number | null = null;
   const showSensors = async () => {
@@ -447,7 +472,8 @@ export function renderMap(root: HTMLElement, data: Data, params: URLSearchParams
         paint: { "circle-radius": 9, "circle-color": step(["get", "v"]) as any, "circle-stroke-color": "#ffffff", "circle-stroke-width": 2 } });
     } else (map.getSource("near") as maplibregl.GeoJSONSource).setData(fc);
     select(code);
-    if (fly) map.flyTo({ center: [p.lon, p.lat], zoom: 15, duration: 700 });
+    if (fly && view3D()) { map.jumpTo({ center: [p.lon, p.lat], zoom: 15 }); sync3D(true); }
+    else if (fly) map.flyTo({ center: [p.lon, p.lat], zoom: 15, duration: 700 });
     history.replaceState(null, "", `#/map?d=${code}&p=${p.lat.toFixed(5)},${p.lon.toFixed(5)}&n=${encodeURIComponent(p.name)}`);
     const yd = { ...data.dongs[code], ...(yearDongs?.[code] ?? { l_night: null }) } as Dong;
     panel.querySelector(".placecard")?.remove();
@@ -461,5 +487,5 @@ export function renderMap(root: HTMLElement, data: Data, params: URLSearchParams
     const pl: Place = { name: params.get("n") ?? "선택한 장소", addr: "", lat, lon };
     showPlace(pl);
   }
-  return () => { stop(); map.remove(); };
+  return () => { stop(); window.removeEventListener("message", on3DMessage); map.remove(); };
 }
