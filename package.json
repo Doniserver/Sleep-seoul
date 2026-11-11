@@ -1,0 +1,11 @@
+{
+  "name": "jamjal-dongne-root",
+  "private": true,
+  "description": "프로젝트 맨 위 폴더에서도 웹 명령을 쓸 수 있게 web/ 으로 넘겨줌",
+  "scripts": {
+    "dev": "npm --prefix web run dev",
+    "build": "npm --prefix web run build",
+    "preview": "npm --prefix web run preview",
+    "setup": "npm --prefix web ci"
+  }
+}

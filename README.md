@@ -57,7 +57,7 @@ cp .env.example .env    # 키 입력
 .venv/bin/python -m pipeline.fetch_sdot api --days 3 # 최근 3일 API 수집
 .venv/bin/python -m pipeline.fetch_buildings         # (단지 목록 API 승인 후)
 .venv/bin/python -m pipeline.build && .venv/bin/python -m pipeline.verify
-cd web && npm ci && npm run dev
+npm run setup && npm run dev   # 맨 위 폴더에서 실행 (web/ 으로 넘겨줌)
 ```
 
 `data/raw/`에 필요한 파일: S-DoT 주간 CSV, `설치 위치정보.xlsx`, `boundary/HangJeongDong_ver20261001.geojson`.
