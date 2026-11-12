@@ -422,7 +422,16 @@ export function renderMap(root: HTMLElement, data: Data, params: URLSearchParams
   const view3D = () => is3D;
   const v3dLoading = root.querySelector<HTMLElement>("#v3d-loading")!;
   let v3dTimer = 0;
-  const reveal3D = () => { clearTimeout(v3dTimer); v3dLoading.hidden = true; if (is3D) v3d.classList.add("on"); };
+  const wrap = root.querySelector<HTMLElement>(".mapwrap")!;
+  let hide2D = 0;
+  const reveal3D = () => {
+    clearTimeout(v3dTimer); v3dLoading.hidden = true;
+    if (!is3D) return;
+    v3d.classList.add("on");
+    wrap.classList.add("is3d");                       // 3D 위에 뜨는 상자의 흐림 효과를 끈다(움직이는 3D 위에서는 매 장면 다시 계산돼 무겁다)
+    clearTimeout(hide2D);
+    hide2D = window.setTimeout(() => { if (is3D) wrap.classList.add("hide2d"); }, 900);   // 겹치기가 끝나면 아래의 2D 지도는 그리지 않는다
+  };
   const sync3D = (move = true, enter = false) => {
     const c = marker ? marker.getLngLat() : map.getCenter();
     const d = st.selected ? data.dongs[st.selected] : null;
@@ -445,6 +454,8 @@ export function renderMap(root: HTMLElement, data: Data, params: URLSearchParams
     if (is3D) return;
     // 새 화면으로 바꾸지 않는다: 3D를 2D와 같은 '위에서 본 모습'으로 맞춘 뒤 서서히 겹치고, 그다음 시점을 기울인다
     is3D = true;
+    // 배경지도에서 넘어올 때도 같은 항공사진끼리 겹치도록 아래 지도를 먼저 항공사진으로 바꾼다
+    if (map.getLayer("vw-sat") && map.getLayoutProperty("vw-sat", "visibility") !== "visible") setBasemap("sat");
     root.querySelector<HTMLElement>("#maphint")!.hidden = true;
     v3d.hidden = false;                 // 아직 투명 (.on 이 붙어야 보임)
     v3dLoading.hidden = false;
@@ -464,12 +475,17 @@ export function renderMap(root: HTMLElement, data: Data, params: URLSearchParams
   b3d.addEventListener("pointerenter", preload3D);
   b3d.addEventListener("focus", preload3D);
   root.querySelector<HTMLButtonElement>('[data-view="sat"]')!.addEventListener("click", () => window.setTimeout(preload3D, 1200));
+  // 어느 화면에서 눌러도 바로 넘어가도록, 지도가 다 그려지고 한가해지면 미리 불러 둔다 (휴대폰·데이터 절약 모드에서는 누를 때만)
+  const eager = window.matchMedia("(min-width: 901px)").matches && !(navigator as any).connection?.saveData;
+  if (eager) map.once("idle", () => window.setTimeout(() => ((window as any).requestIdleCallback ?? window.setTimeout)(preload3D), 2500));
   const closeReal3D = () => {
     if (!is3D) return;
     is3D = false;
     clearTimeout(v3dTimer);
     v3dLoading.hidden = true;
     if (v3dCenter) map.jumpTo({ center: [v3dCenter.lon, v3dCenter.lat] });   // 3D에서 옮겨 간 곳을 2D에서도 이어서 봄
+    clearTimeout(hide2D);
+    wrap.classList.remove("is3d", "hide2d");
     v3d.classList.remove("on");         // 서서히 사라진 뒤에 치운다
     window.setTimeout(() => { if (!is3D) v3d.hidden = true; }, 500);
   };

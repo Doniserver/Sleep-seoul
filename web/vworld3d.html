@@ -28,7 +28,7 @@
           msg.textContent = "브이월드 3D 지도를 불러오지 못했습니다. 인증키와 등록한 사이트 주소를 확인해 주세요.";
           return;
         }
-        var TILT = 35;
+        var TILT = 40;   // 내려다보는 각도. 클수록 먼 곳(지평선 쪽)을 덜 그려서 가볍다
         // 목표 지점을 비스듬히 내려다보도록 카메라를 남쪽 위에 둔다
         function camera(lon, lat, h) {
           var back = h / Math.tan((TILT * Math.PI) / 180);
@@ -52,7 +52,7 @@
           kickTimer = setInterval(function () {
             try { ws3d.viewer.scene.requestRender(); } catch (e) { /* 아직 준비 전 */ }
             if (Date.now() > until) { clearInterval(kickTimer); kickTimer = null; }
-          }, 200);
+          }, 250);
         }
         // 목표 지점이 화면 한가운데 오도록 카메라를 맞춘다 (준비되기 전에는 브이월드 기본 이동을 쓴다)
         function go(seconds) {
@@ -107,6 +107,7 @@
           var cam = ws3d.viewer.camera;
           var fovy = (cam.frustum && cam.frustum.fovy) || Math.PI / 3;
           var h = state.extent > 0 ? state.extent / (2 * Math.tan(fovy / 2)) : state.height * 1.6;
+          tune();   // 브이월드가 나중에 설정을 되돌려 놓을 수 있어 넘어올 때마다 다시 맞춘다
           cam.cancelFlight && cam.cancelFlight();
           cam.setView({ destination: Cesium.Cartesian3.fromDegrees(state.lon, state.lat, h),
                         orientation: { heading: 0, pitch: -Math.PI / 2, roll: 0 } });
@@ -115,8 +116,22 @@
           setTimeout(function () { go(2.2); }, 1350);                                                            // 겹치기가 끝난 뒤 기울인다
         }
 
+        // 그리는 부담 줄이기 (Cesium 설정: 먼 곳은 덜 자세히, 큰 창에서는 해상도를 조금 낮춤). 계단 현상 줄이기(fxaa)는 브이월드가 다시 켜서 그대로 둔다
+        function tune() {
+          try {
+            var v = ws3d.viewer, s = v.scene;
+            s.globe.maximumScreenSpaceError = Math.max(s.globe.maximumScreenSpaceError, 3.2);
+            if (s.fog) { s.fog.enabled = true; s.fog.screenSpaceErrorFactor = Math.max(s.fog.screenSpaceErrorFactor || 2, 4); }
+            var px = v.canvas.clientWidth * v.canvas.clientHeight;
+            v.resolutionScale = Math.max(0.6, Math.min(1, Math.sqrt(2000000 / Math.max(px, 1))));
+            s.requestRender();
+          } catch (e) { /* 설정이 없으면 그대로 둔다 */ }
+        }
+        window.addEventListener("resize", tune);
+
         vw.ws3dInitCallBack = function () {
           ready = true;
+          tune(); setTimeout(tune, 3000);
           msg.hidden = true;
           // 브이월드가 처음 위치로 날아가는 동작이 끝난 뒤에 맞춘다 (바로 부르면 처음 이동이 끊겨 먼 우주에서 멈춤)
           setTimeout(enter, 1500);
@@ -133,7 +148,7 @@
             if (d.enter) enter(); else go(0.8);
           }
           outline();
-          kick(d.move !== false ? 10 : 3);
+          kick(d.move !== false ? 6 : 2);
         });
       })();
     </script>
