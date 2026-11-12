@@ -52,7 +52,7 @@ def test_night_date_assignment():
 
 
 # ── 수면 점수 ──────────────────────────────────────────────
-@pytest.mark.parametrize("db,expected", [(35, 100), (40, 100), (52.5, 50), (65, 0), (70, 0)])
+@pytest.mark.parametrize("db,expected", [(35, 100), (45, 100), (55, 50), (65, 0), (70, 0)])
 def test_noise_score_linear(db, expected):
     assert m.noise_score(db) == pytest.approx(expected)
 

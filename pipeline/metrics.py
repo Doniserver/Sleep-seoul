@@ -44,6 +44,19 @@ def hour_start(ts: pd.Series) -> pd.Series:
     return (ts - pd.Timedelta(hours=1)).dt.floor("h")
 
 
+def device_offset(sn: pd.Series, ts: pd.Series) -> np.ndarray:
+    """센서 기종·연도별로 더할 보정값(dB). 연도는 구간 시작 시각 기준. 기준 기종·모르는 기종은 0."""
+    pre = sn.astype(str).str[:3].to_numpy()
+    year = hour_start(ts).dt.year.to_numpy()
+    out = np.zeros(len(pre), dtype="float64")
+    for model, base in C.DEVICE_OFFSET_DB.items():
+        m = pre == model
+        out[m] = base
+        for y, v in C.DEVICE_OFFSET_BY_YEAR.get(model, {}).items():
+            out[m & (year == y)] = v
+    return out
+
+
 def night_date(hs: pd.Series) -> pd.Series:
     """구간 시작 시각 → 그 시간이 속한 '밤'의 날짜(22시가 시작된 날). 밤이 아니면 NaT."""
     h = hs.dt.hour

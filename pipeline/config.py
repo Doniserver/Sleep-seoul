@@ -34,16 +34,23 @@ MIN_HOURS_PER_NIGHT = 6           # 하룻밤 8시간 중 6시간 이상 있어�
 MAX_NIGHT_MISSING = 0.30          # 기간 내 밤 시간 결측률이 이보다 크면 센서 제외
 NOISE_FLOOR_DB = 35               # 센서 하한 (이 값은 "35dB 이하"를 뜻함)
 PEAK_DB = 70                      # 밤 시간대 시간별 최대값 > 70dB = 피크 1회
-QUIET_NIGHT_DB = 45               # 조용한 밤 기준
+QUIET_NIGHT_DB = 50               # 조용한 밤 기준 (기종 보정 후 분포 기준. 동 값 중앙 약 52dB)
 LUX_REF = 10                      # 주거지역 침입광 참고선
 LUX_BROKEN = 2000                 # 밤 조도 중앙값이 이보다 크면 조도 센서 이상으로 보고 제외
 WHO_LINES = {"who_target": 40, "who_road": 45, "who_interim": 55}
+
+# 센서 기종 보정 (docs/data-check.md 9절). 시리얼 앞 3글자로 기종을 구분한다.
+# V02 기종은 같은 자리의 OC3 기종·서울시 공식 통계보다 낮게 읽는다 → 일정한 값을 더해 OC3 척도로 맞춘다.
+# 근거: 위치 요인 통제 후 차이 8.5dB (나란한 쌍 10.6, 주거 센서 중앙값 9.3). 법정 측정소 비교로 확정 예정.
+DEVICE_OFFSET_DB = {"V02": 8.5}
+# 2020년 V02는 2021년 이후보다 2.3dB 높게 기록됨(같은 센서 792개) → 그만큼 덜 더한다
+DEVICE_OFFSET_BY_YEAR = {"V02": {2020: 6.2}}
 
 # 이상치(공사·축제 등): 센서별 하룻밤 L_night가 그 센서의 밤 중앙값보다 이만큼 이상 높으면 제외
 ANOMALY_DB = 8.0
 
 # 수면 점수 (잠정 — 팀 확정 전)
-SCORE_BEST_DB = 40
+SCORE_BEST_DB = 45                # 주거지역 밤 환경기준(45dB) 이하면 만점. 기종 보정 전에는 40
 SCORE_WORST_DB = 65
 SCORE_LUX_PENALTY = 5             # 밤 밝기 중앙값 > LUX_REF 이면 -5
 SCORE_PEAK_PENALTY_PER = 2        # 하룻밤 평균 피크 1회당 -2

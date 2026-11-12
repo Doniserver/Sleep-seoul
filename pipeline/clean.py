@@ -32,6 +32,12 @@ def prepare(df: pd.DataFrame) -> pd.DataFrame:
     df.loc[(df["nis_avg"] < 20) | (df["nis_avg"] > 130), "nis_avg"] = np.nan
     df.loc[(df["nis_max"] < 20) | (df["nis_max"] > 140), "nis_max"] = np.nan
     df.loc[df["lux_avg"] < 0, "lux_avg"] = np.nan
+    # 센서 기종 보정: 낮게 읽는 기종에 일정한 값을 더한다 (한 번만. dev_off 열에 더한 값을 남김)
+    if "dev_off" not in df.columns:
+        off = M.device_offset(df["sn"], df["ts"])
+        df["nis_avg"] = df["nis_avg"].astype("float64") + off
+        df["nis_max"] = df["nis_max"].astype("float64") + off
+        df["dev_off"] = off
     return df
 
 

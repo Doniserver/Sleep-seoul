@@ -1,8 +1,9 @@
 // 조용함 = 파랑(어두움) → 시끄러움 = 주황(밝음). 명도가 단계마다 올라가서 색약·흑백에서도 순서가 읽힘.
-export const BREAKS = [40, 45, 50, 55, 60];
-export const COLORS = ["#2b4c7e", "#3f72af", "#7d9cc0", "#e0a458", "#f5b041", "#ffe08a"];
+// 기종 보정 뒤 동 값이 48~58dB에 몰려 있어 2dB 간격으로 나눈다
+export const BREAKS = [48, 50, 52, 54, 56, 58];
+export const COLORS = ["#23406b", "#2f5d96", "#5b86b8", "#a9b9c9", "#e0a458", "#f5b041", "#ffe08a"];
 export const NODATA = "#3a3f4b";
-export const LABELS = ["40 미만", "40–45", "45–50", "50–55", "55–60", "60 이상"];
+export const LABELS = ["48 미만", "48–50", "50–52", "52–54", "54–56", "56–58", "58 이상"];
 
 export function colorFor(v: number | null | undefined): string {
   if (v === null || v === undefined || Number.isNaN(v)) return NODATA;
@@ -22,6 +23,4 @@ export function inkFor(bg: string): string {
   return L > 0.25 ? "#111" : "#fff";
 }
 
-export const step = (input: unknown) => [
-  "step", input, COLORS[0], BREAKS[0], COLORS[1], BREAKS[1], COLORS[2], BREAKS[2], COLORS[3], BREAKS[3], COLORS[4], BREAKS[4], COLORS[5],
-];
+export const step = (input: unknown) => ["step", input, COLORS[0], ...BREAKS.flatMap((b, i) => [b, COLORS[i + 1]])];

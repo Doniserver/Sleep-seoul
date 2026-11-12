@@ -154,3 +154,37 @@ export function yearTrend(el: HTMLElement, dong: { year: number; v: number | nul
     .attr("fill", d.partial ? "var(--panel)" : colorFor(d.v)).attr("stroke", "var(--accent)").attr("stroke-width", 2)
     .append("title").text(`${d.year}년 ${fmt(d.v, 1, "dB")}${d.partial ? " (일부 기간)" : ""}`));
 }
+
+/** 큰길→골목 단면도: 가장 시끄러운 쪽에서 이 자리를 지나 안쪽까지의 추정 밤 소음 (추정값) */
+export function crossSection(el: HTMLElement, p: { pts: { m: number; db: number }[]; hereM: number; hereDb: number; peakDb: number },
+                             colorOf: (db: number) => string) {
+  el.innerHTML = "";
+  const w = 320, h = 150, m = { l: 34, r: 10, t: 16, b: 30 };
+  const xs = p.pts.map((d) => d.m), ys = p.pts.map((d) => d.db);
+  const x = d3.scaleLinear().domain([0, Math.max(...xs)]).range([m.l, w - m.r]);
+  const lo = Math.floor(Math.min(...ys) - 1), hi = Math.ceil(Math.max(...ys) + 1);
+  const y = d3.scaleLinear().domain([lo, hi]).range([h - m.b, m.t]);
+  const end = p.pts[p.pts.length - 1];
+  const svg = d3.select(el).append("svg").attr("viewBox", `0 0 ${w} ${h}`).attr("role", "img")
+    .attr("aria-label", `단면도(추정). 가장 시끄러운 쪽 ${p.peakDb.toFixed(1)}dB, 그곳에서 ${p.hereM}m 떨어진 이 자리 ${p.hereDb.toFixed(1)}dB, 안쪽 끝 ${end.db.toFixed(1)}dB.`);
+  const g = svg.append("g");
+  y.ticks(4).forEach((t) => {
+    g.append("line").attr("x1", m.l).attr("x2", w - m.r).attr("y1", y(t)).attr("y2", y(t)).attr("stroke", "var(--line)");
+    g.append("text").attr("x", m.l - 5).attr("y", y(t) + 3).attr("text-anchor", "end").attr("font-size", 10).attr("fill", TXT).text(t);
+  });
+  g.append("text").attr("x", 4).attr("y", 10).attr("font-size", 10).attr("fill", TXT).text("dB");
+  // 구간마다 그 값의 색으로 칠한 띠 + 선
+  for (let i = 0; i < p.pts.length - 1; i++) {
+    const a = p.pts[i], b = p.pts[i + 1];
+    g.append("path").attr("d", `M${x(a.m)},${y(a.db)} L${x(b.m)},${y(b.db)} L${x(b.m)},${h - m.b} L${x(a.m)},${h - m.b} Z`).attr("fill", colorOf((a.db + b.db) / 2)).attr("opacity", 0.85);
+  }
+  g.append("path").attr("d", d3.line<{ m: number; db: number }>().x((d) => x(d.m)).y((d) => y(d.db))(p.pts)!).attr("fill", "none").attr("stroke", "var(--ink)").attr("stroke-width", 1.5);
+  x.ticks(5).forEach((t) => g.append("text").attr("x", x(t)).attr("y", h - m.b + 12).attr("text-anchor", "middle").attr("font-size", 10).attr("fill", TXT).text(`${t}m`));
+  g.append("text").attr("x", m.l).attr("y", h - 3).attr("font-size", 10).attr("fill", TXT).text("← 시끄러운 쪽(큰길)");
+  g.append("text").attr("x", w - m.r).attr("y", h - 3).attr("text-anchor", "end").attr("font-size", 10).attr("fill", TXT).text("안쪽 →");
+  // 이 자리
+  g.append("line").attr("x1", x(p.hereM)).attr("x2", x(p.hereM)).attr("y1", m.t).attr("y2", h - m.b).attr("stroke", "#fff").attr("stroke-dasharray", "3 2");
+  g.append("circle").attr("cx", x(p.hereM)).attr("cy", y(p.hereDb)).attr("r", 5).attr("fill", colorOf(p.hereDb)).attr("stroke", "#fff").attr("stroke-width", 2);
+  const right = x(p.hereM) < w - 80;
+  g.append("text").attr("x", x(p.hereM) + (right ? 8 : -8)).attr("y", m.t + 8).attr("text-anchor", right ? "start" : "end").attr("font-size", 11).attr("font-weight", 700).attr("fill", "var(--ink)").text(`이 자리 ${p.hereDb.toFixed(1)}`);
+}

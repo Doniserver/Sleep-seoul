@@ -22,6 +22,12 @@ def emean(vals):
     return 10 * math.log10(sum(10 ** (v / 10) for v in vals) / len(vals)) if vals else float("nan")
 
 
+def dev_off(sn: str, year: int) -> float:
+    """센서 기종 보정값을 파이프라인 함수와 따로 계산 (시리얼 앞 3글자, 구간 시작 연도 기준)."""
+    model = str(sn)[:3]
+    return C.DEVICE_OFFSET_BY_YEAR.get(model, {}).get(year, C.DEVICE_OFFSET_DB.get(model, 0.0))
+
+
 def main(n=30, seed=0):
     dongs = json.loads((C.WEB_DATA / "dongs_stats.json").read_text(encoding="utf-8"))
     meta = json.loads((C.WEB_DATA / "meta.json").read_text(encoding="utf-8"))
@@ -66,7 +72,7 @@ def main(n=30, seed=0):
                 nd = (hs.normalize() if h >= 22 else hs.normalize() - pd.Timedelta(days=1)).strftime("%Y-%m-%d")
                 if not (meta["period"]["start"] <= nd <= meta["period"]["end"]):
                     continue
-                nights.setdefault(nd, []).append(float(v))
+                nights.setdefault(nd, []).append(float(v) + dev_off(sn, hs.year))
             vals = [v for nd, vs in nights.items() if len(vs) >= C.MIN_HOURS_PER_NIGHT and (sn, nd) not in bad_nights for v in vs]
             per_sensor.append(emean(vals))
         L = statistics.median(per_sensor)

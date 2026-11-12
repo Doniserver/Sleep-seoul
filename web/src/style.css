@@ -209,3 +209,14 @@ body[data-route="map"] .foot { padding-top: 8px; }
 @media (min-width: 901px) {
   .v3d-chip, .v3d-note { left: calc(50% + 160px); max-width: calc(100% - 420px); }
 }
+
+/* 상세 추정 지도 범례 (이어지는 색 띠) */
+.legend .ramp { height: 12px; border-radius: 3px; margin: 2px 0; }
+.legend .ramp-ticks { display: flex; justify-content: space-between; color: var(--ink-2); font-size: 11px; }
+.legend .ramp-ticks span { width: auto; height: auto; background: none; }
+.legend .hint { margin: 4px 0 0; }
+
+/* 장소 카드: 주의 표시와 단면도 */
+.pc-flags { list-style: none; margin: 8px 0 0; padding: 0; display: flex; flex-wrap: wrap; gap: 6px; }
+.pc-flags li { border: 1px solid var(--accent); color: var(--ink); border-radius: 999px; padding: 2px 10px; font-size: 12px; }
+.pc-h { margin: 12px 0 2px; font-size: 14px; }
