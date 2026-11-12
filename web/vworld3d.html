@@ -28,7 +28,9 @@
           msg.textContent = "브이월드 3D 지도를 불러오지 못했습니다. 인증키와 등록한 사이트 주소를 확인해 주세요.";
           return;
         }
-        var TILT = 40;   // 내려다보는 각도. 클수록 먼 곳(지평선 쪽)을 덜 그려서 가볍다
+        var TILT = 45;   // 내려다보는 각도. 클수록 먼 곳(지평선 쪽)을 덜 그려서 가볍고, 받아야 할 건물도 줄어든다
+        // 사파리는 이 3D 프로그램(Cesium)을 크롬보다 느리게 그린다. 사파리에서는 해상도와 자세함을 더 낮춘다
+        var SAFARI = /^((?!chrome|chromium|android|crios|fxios|edg).)*safari/i.test(navigator.userAgent);
         // 목표 지점을 비스듬히 내려다보도록 카메라를 남쪽 위에 둔다
         function camera(lon, lat, h) {
           var back = h / Math.tan((TILT * Math.PI) / 180);
@@ -102,8 +104,13 @@
 
         // 2D 지도에서 넘어올 때: 먼저 2D와 똑같이 위에서 똑바로 내려다보는 모습으로 맞추고(부모 창이 이때 화면을 서서히 겹친다),
         // 그다음 비스듬한 3D 시점으로 천천히 기울인다. extent = 2D 화면 세로에 담긴 땅의 길이(m)
+        // 3D가 화면에 안 보이는 동안에는 그리기를 멈춘다 (멈추지 않으면 보이지 않아도 계속 그려 2D 지도까지 느려진다)
+        function pause(on) {
+          try { ws3d.viewer.useDefaultRenderLoop = !on; if (!on) ws3d.viewer.scene.requestRender(); } catch (e) { /* 준비 전 */ }
+        }
         function enter() {
           if (!ready || typeof Cesium === "undefined") return;
+          pause(false);
           var cam = ws3d.viewer.camera;
           var fovy = (cam.frustum && cam.frustum.fovy) || Math.PI / 3;
           var h = state.extent > 0 ? state.extent / (2 * Math.tan(fovy / 2)) : state.height * 1.6;
@@ -120,10 +127,10 @@
         function tune() {
           try {
             var v = ws3d.viewer, s = v.scene;
-            s.globe.maximumScreenSpaceError = Math.max(s.globe.maximumScreenSpaceError, 3.2);
+            s.globe.maximumScreenSpaceError = Math.max(s.globe.maximumScreenSpaceError, SAFARI ? 4.5 : 3.2);
             if (s.fog) { s.fog.enabled = true; s.fog.screenSpaceErrorFactor = Math.max(s.fog.screenSpaceErrorFactor || 2, 4); }
             var px = v.canvas.clientWidth * v.canvas.clientHeight;
-            v.resolutionScale = Math.max(0.6, Math.min(1, Math.sqrt(2000000 / Math.max(px, 1))));
+            v.resolutionScale = Math.max(0.55, Math.min(1, Math.sqrt((SAFARI ? 1000000 : 2000000) / Math.max(px, 1))));
             s.requestRender();
           } catch (e) { /* 설정이 없으면 그대로 둔다 */ }
         }
@@ -142,6 +149,7 @@
         window.addEventListener("message", function (e) {
           if (e.origin !== location.origin || !e.data || e.data.type !== "jamjal-3d") return;
           var d = e.data;
+          if (d.pause) { pause(true); return; }
           state.code = d.code || ""; state.color = d.color || "#ffffff";
           if (d.move !== false && isFinite(d.lon) && isFinite(d.lat)) {
             state.lon = d.lon; state.lat = d.lat; state.height = d.height || state.height; state.extent = d.extent || 0;

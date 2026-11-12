@@ -423,10 +423,11 @@ export function renderMap(root: HTMLElement, data: Data, params: URLSearchParams
   const v3dLoading = root.querySelector<HTMLElement>("#v3d-loading")!;
   let v3dTimer = 0;
   const wrap = root.querySelector<HTMLElement>(".mapwrap")!;
+  const pause3D = () => v3dFrame.contentWindow?.postMessage({ type: "jamjal-3d", pause: true }, location.origin);
   let hide2D = 0;
   const reveal3D = () => {
     clearTimeout(v3dTimer); v3dLoading.hidden = true;
-    if (!is3D) return;
+    if (!is3D) { pause3D(); return; }                 // 미리 불러오기가 끝난 것: 보일 때까지 그리기를 멈춰 둔다
     v3d.classList.add("on");
     wrap.classList.add("is3d");                       // 3D 위에 뜨는 상자의 흐림 효과를 끈다(움직이는 3D 위에서는 매 장면 다시 계산돼 무겁다)
     clearTimeout(hide2D);
@@ -487,7 +488,7 @@ export function renderMap(root: HTMLElement, data: Data, params: URLSearchParams
     clearTimeout(hide2D);
     wrap.classList.remove("is3d", "hide2d");
     v3d.classList.remove("on");         // 서서히 사라진 뒤에 치운다
-    window.setTimeout(() => { if (!is3D) v3d.hidden = true; }, 500);
+    window.setTimeout(() => { if (!is3D) { v3d.hidden = true; pause3D(); } }, 500);
   };
   const on3DMessage = (e: MessageEvent) => {
     if (e.origin !== location.origin) return;
