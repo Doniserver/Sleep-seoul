@@ -9,6 +9,7 @@
   3) 교차검증으로 오차를 재고, 모든 칸에 적용해 한 장의 그림(PNG, 0.25dB 단위)으로 저장한다
 입력: data/derived/roads.parquet(fetch_roads), rail.parquet, stores_seoul.parquet, 연도별 센서 값
 출력: web/public/data/noisemap/night_{연도}.png, noisemap.json
+  4) 낮(06~22시) 지도: 센서의 낮 시간 평균 소음을 목표로 같은 방법으로 한 장 더 만든다 (day_{연도}.png)
 """
 from __future__ import annotations
 
@@ -220,6 +221,11 @@ def decode_db(b: np.ndarray) -> np.ndarray:
     return np.where(b == 0, np.nan, DB_MIN + (b.astype("float64") - 1) * DB_STEP)
 
 
+def range_db(H: np.ndarray, hours: list[int]) -> np.ndarray:
+    """시각별 dB(행 × 시각)에서 고른 시각들의 에너지 평균."""
+    return 10 * np.log10(np.mean(10 ** (np.asarray(H, dtype="float64")[:, hours] / 10), axis=1))
+
+
 def pack_flags(conds: list[np.ndarray]) -> np.ndarray:
     """조건(참/거짓 배열)들을 칸마다 한 바이트로 묶는다. i번째 조건 = 2^i."""
     out = np.zeros(conds[0].shape, dtype=np.uint8)
@@ -325,6 +331,47 @@ def load_sensors(year: int) -> pd.DataFrame:
     return s.set_index("sn")
 
 
+def sensor_hours(year: int) -> pd.DataFrame:
+    """센서별 시각(0~23시)별 소음: 그 해 정제된 시간 자료의 에너지 평균 (기종 보정 후). 동네 값의 '시간대 선택'과 같은 기준."""
+    from . import clean as CL
+    from . import metrics as M
+    df = CL.prepare(pd.read_parquet(C.DERIVED / "years" / f"{year}.parquet"))
+    df = df[df["nd"].isna() | (df["nd"].dt.year == year)]
+    df = df[(df["hs"].dt.year == year) | df["nd"].notna()]
+    _, full, _, _ = CL.clean(df)
+    full = full.assign(e=M.to_energy(full["nis_avg"]), h=full["hs"].dt.hour)
+    return full.groupby(["sn", "h"])["e"].mean().pipe(M.from_energy).unstack().reindex(columns=range(24))
+
+
+DAY_HOURS = list(range(6, 22))      # 낮 = 06~22시 (밤 22~06시의 나머지)
+
+
+def build_day(year: int, s: pd.DataFrame, X: np.ndarray, feats_def: list, cache_dir, seoul: np.ndarray, g: Grid) -> dict | None:
+    """낮(06~22시) 추정 지도 한 장. 목표값 = 센서의 낮 시각별 평균을 에너지 평균한 값."""
+    src = C.DERIVED / "years" / f"{year}.parquet"
+    if not src.exists():
+        print(f"[noisemap] 낮 지도 건너뜀: {src.name} 없음 (python -m pipeline.yearly 먼저)")
+        return None
+    sh = sensor_hours(year).reindex(s.index)
+    ok = sh[DAY_HOURS].notna().all(axis=1).to_numpy()
+    y, Xd = range_db(sh.to_numpy()[ok], DAY_HOURS), X[ok]
+    acc = accuracy(gbm.cv_predict(Xd, y, **MODEL_KW), y)
+    print(f"[noisemap] 낮 지도 교차검증: 센서 {acc['n']}개, 평균 오차 {acc['mae']}dB (기준선 {acc['baseline_mae']}), ±3dB {acc['within3']:.0%}, ±5dB {acc['within5']:.0%}")
+    model = gbm.fit(Xd, y, **MODEL_KW)
+    tabs = gbm.tables(model, len(feats_def))
+    pred = np.full((g.ny, g.nx), model["base"], dtype="float32")
+    for j, (name, _, _) in enumerate(feats_def):
+        if len(tabs[j]["thr"]):
+            pred += gbm.apply_table(tabs[j], np.load(cache_dir / f"{name}.npy")).astype("float32")
+    v = pred[seoul]
+    pred[~seoul] = np.nan
+    png = png_gray(encode_db(pred))
+    (OUT_DIR / f"day_{year}.png").write_bytes(png)
+    q = {str(k): round(float(np.quantile(v, k / 100)), 1) for k in (5, 10, 25, 50, 75, 90, 95)}
+    print(f"[noisemap] 저장: day_{year}.png {len(png) / 1e6:.1f}MB, 추정값 분포 {q}")
+    return {"file": f"day_{year}.png", "hours": [6, 22], "accuracy": acc, "n_sensors": int(ok.sum()), "quantiles": q}
+
+
 def accuracy(pred: np.ndarray, y: np.ndarray) -> dict:
     e = pred - y
     return {"n": int(len(y)), "mae": round(float(np.abs(e).mean()), 2), "median_abs": round(float(np.median(np.abs(e))), 2),
@@ -336,6 +383,7 @@ def accuracy(pred: np.ndarray, y: np.ndarray) -> dict:
 def main():
     ap = argparse.ArgumentParser()
     ap.add_argument("--year", type=int, default=None)
+    ap.add_argument("--no-day", action="store_true", help="낮 지도는 만들지 않음")
     a = ap.parse_args()
     idx = json.loads((C.WEB_DATA / "years" / "index.json").read_text(encoding="utf-8"))
     years = [y["year"] for y in (idx["years"] if isinstance(idx, dict) else idx)]
@@ -367,13 +415,19 @@ def main():
     for j, (name, _, how) in enumerate(feats_def):
         if len(tabs[j]["thr"]):
             pred += gbm.apply_table(tabs[j], np.load(cache_dir / f"{name}.npy")).astype("float32")
-        (cache_dir / f"{name}.npy").unlink()
     from . import sensors as SE
     feats = SE.load_boundaries()
     seoul = rasterize_polygons([shapely.geometry.shape(f["geometry"]) for f in feats], g) > 0
     pred[~seoul] = np.nan
 
     OUT_DIR.mkdir(parents=True, exist_ok=True)
+    day = None if a.no_day else build_day(year, s, X, feats_def, cache_dir, seoul, g)
+    for f in OUT_DIR.glob("*.png"):          # 다른 해·옛 방식의 그림은 지운다
+        if f.name not in (f"night_{year}.png", f"day_{year}.png", "flags.png"):
+            f.unlink()
+    (OUT_DIR / "hours.json").unlink(missing_ok=True)
+    for name, _, _ in feats_def:
+        (cache_dir / f"{name}.npy").unlink()
     png = png_gray(encode_db(pred))
     (OUT_DIR / f"night_{year}.png").write_bytes(png)
     flags = pack_flags([disk_sum(base[key], rad / g.cell_m) >= need for _, key, rad, need, _ in FLAGS])
@@ -390,7 +444,7 @@ def main():
             "base_db": round(model["base"], 2),
             "features": [{"name": f[0], "label": f[1], "thr": [round(t, 3) for t in tabs[j]["thr"]],
                           "add": [round(x, 3) for x in tabs[j]["add"]]} for j, f in enumerate(feats_def)],
-            "uses_buildings": "cover" in base,
+            "uses_buildings": "cover" in base, "day": day,
             "flags": {"file": "flags.png", "items": [{"bit": i, "name": f[0], "label": f[4]} for i, f in enumerate(FLAGS)],
                       "share": {f[0]: round(float(((flags[seoul] >> i) & 1).mean()), 3) for i, f in enumerate(FLAGS)}},
             "note": "센서 주변 조건(도로·철도·상가·건물 가림)으로 추정한 밤 소음. 측정값이 아님."}

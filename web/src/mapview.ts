@@ -2,10 +2,10 @@ import * as maplibregl from "maplibre-gl";
 import type { Map as MlMap, StyleSpecification } from "maplibre-gl";
 import "maplibre-gl/dist/maplibre-gl.css";
 import workerUrl from "maplibre-gl/dist/maplibre-gl-worker.mjs?url";
-import { COLORS, LABELS, NODATA, colorFor, step } from "./colors";
+import { BREAKS, COLORS, NODATA, colorFor, step } from "./colors";
 import { type Data, type Dong, type YearInfo, fmt, loadBuildings, loadSensors, loadYear, loadYearsIndex, sortedDongs } from "./data";
 import { type Near, type Place, dongAt, nearestSensors, searchPlaces } from "./place";
-import { DETAIL_STOPS, type NoiseMap, type Profile, detailCss, loadNoiseMap } from "./detail";
+import { DETAIL_MID, DETAIL_SPAN, DETAIL_STOPS, type NoiseMap, type Profile, detailCss, loadNoiseMap } from "./detail";
 import { crossSection } from "./charts";
 import { renderReport } from "./report";
 
@@ -14,7 +14,7 @@ function escHtml(s: string) {
 }
 
 /** 장소 카드: 그 위치 자체를 잰 값이 아님을 분명히 */
-function placeCard(p: Place, d: Dong, near: Near[], year: number, est: number | null = null, estYear = 0, prof: Profile | null = null, flags: string[] = []): HTMLElement {
+function placeCard(p: Place, d: Dong, near: Near[], year: number, est: number | null = null, estLabel = "", prof: Profile | null = null, flags: string[] = []): HTMLElement {
   const el = document.createElement("section");
   el.className = "placecard";
   el.setAttribute("aria-label", `${p.name} 주변 소음`);
@@ -25,7 +25,7 @@ function placeCard(p: Place, d: Dong, near: Near[], year: number, est: number | 
     ${p.addr ? `<p class="hint">${escHtml(p.addr)}</p>` : ""}
     <div class="pc-row">
       ${est !== null ? `<div><span class="chip sm" style="background:${detailCss(est)}"></span><b>${fmt(est, 1, "dB")}</b>
-        <p class="lbl">이 자리 <span class="est">추정</span> · ${estYear}년 밤</p></div>` : ""}
+        <p class="lbl">이 자리 <span class="est">추정</span> · ${escHtml(estLabel)}</p></div>` : ""}
       <div><span class="chip sm" style="background:${colorFor(d.l_night)}"></span><b>${fmt(d.l_night, 1, "dB")}</b>
         <p class="lbl">${escHtml(d.gu)} ${escHtml(d.name)} 대표값 · ${year}년 밤</p></div>
       ${near[0] ? `<div><span class="chip sm" style="background:${colorFor(near[0].s.l_night)}"></span><b>${fmt(near[0].s.l_night, 1, "dB")}</b>
@@ -59,9 +59,11 @@ const STYLE: StyleSpecification = {
   layers: [
     { id: "bg", type: "background", paint: { "background-color": "#0b111c" } },
     ...(VW_KEY ? [
-      { id: "vw-dark", type: "raster" as const, source: "vw-dark" },
-      { id: "vw-light", type: "raster" as const, source: "vw-light", layout: { visibility: "none" as const } },
-      { id: "vw-sat", type: "raster" as const, source: "vw-sat", layout: { visibility: "none" as const } },
+      // 배경지도는 회색조로 가라앉힌다: 지도 위에서 색을 띠는 것은 소음 값뿐이어야 파랑(조용함)이 배경과 섞이지 않는다
+      { id: "vw-dark", type: "raster" as const, source: "vw-dark", paint: { "raster-saturation": -1, "raster-brightness-max": 0.62, "raster-contrast": 0.1 } },
+      { id: "vw-light", type: "raster" as const, source: "vw-light", layout: { visibility: "none" as const }, paint: { "raster-saturation": -0.85 } },
+      // 항공사진도 색을 빼고 어둡게: 건물·길 모양은 남고, 색은 소음 값만 띤다
+      { id: "vw-sat", type: "raster" as const, source: "vw-sat", layout: { visibility: "none" as const }, paint: { "raster-saturation": -0.8, "raster-brightness-max": 0.7, "raster-contrast": 0.15 } },
     ] : []),
   ],
 };
@@ -93,46 +95,36 @@ export function renderMap(root: HTMLElement, data: Data, params: URLSearchParams
           <ul id="qres" class="qres"></ul>
         </form>
         <datalist id="dong-list">${sortedDongs(data).map((d) => `<option value="${d.gu} ${d.name}"></option>`).join("")}</datalist>
-        <div class="row">
-          <label>연도 <select id="month" aria-label="연도 선택"></select></label>
+        <div class="trange" role="group" aria-label="시간대">
+          <button type="button" data-r="22,6" aria-pressed="true"><b>밤</b> 22~06시</button>
+          <button type="button" data-r="6,22" aria-pressed="false"><b>낮</b> 06~22시</button>
         </div>
-        <fieldset class="trange">
-          <legend>시간대 <span id="hlabel" aria-live="polite">밤 22시~06시</span></legend>
-          <div class="row">
-            <label>시작 <select id="h0">${Array.from({ length: 24 }, (_, h) => `<option value="${h}" ${h === 22 ? "selected" : ""}>${h}시</option>`).join("")}</select></label>
-            <span class="tilde" aria-hidden="true">~</span>
-            <label>끝 <select id="h1">${Array.from({ length: 24 }, (_, i) => i + 1).map((h) => `<option value="${h}" ${h === 6 ? "selected" : ""}>${h === 24 ? "24시(자정)" : h + "시"}</option>`).join("")}</select></label>
-          </div>
-          <div class="presets" role="group" aria-label="자주 쓰는 시간대">
-            <button type="button" data-r="22,6" aria-pressed="true">밤 22~06시</button>
-            <button type="button" data-r="0,6" aria-pressed="false">새벽 0~6시</button>
-            <button type="button" data-r="6,22" aria-pressed="false">낮 06~22시</button>
-            <button type="button" data-r="0,24" aria-pressed="false">하루 전체</button>
-          </div>
-        </fieldset>
         <div class="row basemap" role="group" aria-label="지도 보기 방식">
           <button type="button" data-view="map" aria-pressed="true">배경지도</button>
           <button type="button" data-view="sat" aria-pressed="false">실사 2D</button>
           <button type="button" data-view="3d" aria-pressed="false">실사 3D</button>
         </div>
         <label class="lightopt"><input type="checkbox" id="bmlight" /> 배경지도를 밝게</label>
-        <label class="opacity">색 진하기 <span id="oplabel">80%</span>
-          <input type="range" id="op" min="0" max="100" step="5" value="80" aria-describedby="oplabel" />
+        <label class="opacity">색 진하기 <span id="oplabel">90%</span>
+          <input type="range" id="op" min="0" max="100" step="5" value="90" aria-describedby="oplabel" />
         </label>
-        <label class="lightopt"><input type="checkbox" id="tdet" checked /> 상세 지도 (10m 칸, 밤 소음 <span class="est">추정</span>)</label>
+        <label class="lightopt"><input type="checkbox" id="tdet" checked /> 상세 지도 (10m 칸, <span class="est">추정</span>)</label>
+        <p class="detnote" id="detnote" hidden></p>
         <div class="row toggles">
           <label><input type="checkbox" id="t3d" /> 3D 기둥(연출)</label>
           <label><input type="checkbox" id="tsen" /> 센서 위치</label>
           <label><input type="checkbox" id="tbld" /> 층간소음 위험(추정)</label>
         </div>
         <div class="legend" aria-label="색 범례">
-          <div id="nlegend"><p>밤 소음 (dB)</p>
-          <ul>${COLORS.map((c, i) => `<li><span style="background:${c}"></span>${LABELS[i]}</li>`).join("")}
-          <li><span style="background:${NODATA}"></span>데이터 없음</li></ul></div>
-          <div id="dlegend" hidden><p>자리별 밤 소음(dB) <span id="dyear"></span> <span class="est">추정</span></p>
-          <div class="ramp" style="background:linear-gradient(90deg, ${DETAIL_STOPS.map(([v, c]) => `${c} ${((v - 49) / 10) * 100}%`).join(", ")})" role="img" aria-label="49dB(파랑, 조용함)에서 59dB(노랑, 시끄러움)까지 이어지는 색"></div>
-          <div class="ramp-ticks"><span>49 이하</span><span>52</span><span>55</span><span>59 이상</span></div>
-          <p class="hint">도로·철도·상가 밀집으로 계산한 값입니다. 흰 점(센서 위치)을 켜면 실제로 잰 자리를 볼 수 있습니다.</p></div>
+          <div id="nlegend"><p>동네별 <span class="lwhen">밤</span> 소음 (dB) <span class="lyear"></span></p>
+          <ul id="nlist"></ul>
+          <p class="hint" id="nshift" hidden></p></div>
+          <div id="dlegend" hidden><p>자리별 <span class="lwhen">밤</span> 소음 (dB) <span class="lyear"></span> <span class="est">추정</span></p>
+          <div class="ramp" style="background:linear-gradient(90deg, ${DETAIL_STOPS.map(([v, c]) => `${c} ${((v - (DETAIL_MID - DETAIL_SPAN)) / (2 * DETAIL_SPAN)) * 100}%`).join(", ")})" role="img" id="dramp"></div>
+          <div class="ramp-ticks" id="dticks"></div>
+          <div class="ramp-ends"><span>조용함</span><span>중간</span><span>시끄러움</span></div>
+          <p class="hint" id="dshift" hidden></p>
+          <p class="hint">도로·철도·상가 밀집·건물 가림으로 계산한 값입니다. 센서 위치를 켜면 실제로 잰 자리를 볼 수 있습니다.</p></div>
           <div id="blegend" hidden><p>공동주택 중 '높음'(~2007년 사용승인) 단지 비율 <span class="est">추정</span></p>
           <ul>${BLD_COLORS.map((c, i) => `<li><span style="background:${c}"></span>${BLD_LABELS[i]}</li>`).join("")}
           <li><span style="background:${NODATA}"></span>단지 없음·연결 안 됨</li></ul></div>
@@ -165,8 +157,7 @@ export function renderMap(root: HTMLElement, data: Data, params: URLSearchParams
     return out;
   };
   const isNight = () => range[0] === 22 && range[1] === 6;
-  const two = (h: number) => String(h).padStart(2, "0");
-  const rangeLabel = () => (range[0] === 0 && range[1] === 24 ? "하루 전체" : `${two(range[0])}시~${two(range[1] % 24 === 0 ? 24 : range[1])}시`);
+  const rangeLabel = () => (isNight() ? "밤(22~06시)" : "낮(06~22시)");
   const periodLabel = () => {
     if (!year) return "";
     const y = yearInfos.find((x) => x.year === year);
@@ -198,11 +189,25 @@ export function renderMap(root: HTMLElement, data: Data, params: URLSearchParams
     root.querySelectorAll<HTMLButtonElement>(".intro button[data-code]").forEach((b) => b.addEventListener("click", () => select(b.dataset.code!, true)));
   };
 
+  // 낮에는 서울 전체가 밤보다 몇 dB 높다. 동네끼리 차이가 보이도록 색 기준을 그만큼(정수 dB) 옮기고 범례 숫자도 함께 바꾼다
+  let dongShift = 0;
+  const med = (a: number[]) => { const b = [...a].sort((x, y) => x - y); return b.length ? b[Math.floor(b.length / 2)] : 0; };
   const paint = () => {
-    for (const f of data.geo.features) {
-      const v = valueOf(srcOf((f.properties as any).code));
-      map.setFeatureState({ source: "dongs", id: f.id as number }, { v: v ?? 0, has: v != null });
-    }
+    const codes = data.geo.features.map((f) => (f.properties as any).code as string);
+    const vs = codes.map((c) => valueOf(srcOf(c)));
+    const nights = codes.map((c) => srcOf(c)?.l_night).filter((v): v is number => v != null);
+    dongShift = isNight() ? 0 : Math.round(med(vs.filter((v): v is number => v != null)) - med(nights));
+    data.geo.features.forEach((f, i) => {
+      const v = vs[i];
+      map.setFeatureState({ source: "dongs", id: f.id as number }, { v: v ?? 0, c: (v ?? 0) - dongShift, has: v != null });
+    });
+    const lab = (i: number) => (i === 0 ? `${BREAKS[0] + dongShift} 미만` : i === BREAKS.length ? `${BREAKS[i - 1] + dongShift} 이상` : `${BREAKS[i - 1] + dongShift}–${BREAKS[i] + dongShift}`);
+    root.querySelector("#nlist")!.innerHTML = COLORS.map((c, i) => `<li><span style="background:${c}"></span>${lab(i)}</li>`).join("") + `<li><span class="nodata"></span>데이터 없음</li>`;
+    const ns = root.querySelector<HTMLElement>("#nshift")!;
+    ns.hidden = dongShift === 0;
+    ns.innerHTML = `낮은 서울 전체가 밤보다 약 <b>${dongShift}dB</b> 높아, 동네끼리 차이가 보이도록 색 기준을 그만큼 옮겼습니다.`;
+    root.querySelectorAll<HTMLElement>(".lwhen").forEach((e) => (e.textContent = isNight() ? "밤" : "낮"));
+    root.querySelectorAll<HTMLElement>(".lyear").forEach((e) => (e.textContent = year ? `· ${year}년` : ""));
     top();
   };
 
@@ -238,8 +243,8 @@ export function renderMap(root: HTMLElement, data: Data, params: URLSearchParams
   map.once("style.load", () => {
     styleReady = true;
     map.addSource("dongs", { type: "geojson", data: data.geo });
-    const color: any = ["case", ["boolean", ["feature-state", "has"], false], step(["feature-state", "v"]), NODATA];
-    map.addLayer({ id: "fill", type: "fill", source: "dongs", paint: { "fill-color": color, "fill-opacity": 0.8 } });
+    const color: any = ["case", ["boolean", ["feature-state", "has"], false], step(["feature-state", "c"]), NODATA];
+    map.addLayer({ id: "fill", type: "fill", source: "dongs", paint: { "fill-color": color, "fill-opacity": ["case", ["boolean", ["feature-state", "has"], false], 0.8, 0] } });
     map.addLayer({ id: "ext", type: "fill-extrusion", source: "dongs", layout: { visibility: "none" },
       paint: { "fill-extrusion-color": color, "fill-extrusion-opacity": 0.9,
         "fill-extrusion-height": ["case", ["boolean", ["feature-state", "has"], false], ["*", ["max", 0, ["-", ["feature-state", "v"], 33]], 120], 0] } });
@@ -270,11 +275,7 @@ export function renderMap(root: HTMLElement, data: Data, params: URLSearchParams
   });
 
   // 컨트롤: 연도 + 시간대
-  const hlabel = root.querySelector<HTMLElement>("#hlabel")!;
-  const yearSel = root.querySelector<HTMLSelectElement>("#month")!;
-  const h0 = root.querySelector<HTMLSelectElement>("#h0")!;
-  const h1 = root.querySelector<HTMLSelectElement>("#h1")!;
-  const presets = [...root.querySelectorAll<HTMLButtonElement>(".presets button")];
+  const presets = [...root.querySelectorAll<HTMLButtonElement>(".trange button")];
   const refresh = () => {
     paint();
     const fp = document.getElementById("foot-period");
@@ -285,33 +286,34 @@ export function renderMap(root: HTMLElement, data: Data, params: URLSearchParams
   };
   const setRange = (a: number, b: number) => {
     range = [a, b];
-    h0.value = String(a); h1.value = String(b === 0 ? 24 : b);
-    hlabel.textContent = rangeLabel() === "하루 전체" ? "하루 전체 (0~24시)" : rangeLabel();
     presets.forEach((p) => p.setAttribute("aria-pressed", String(p.dataset.r === `${a},${b}`)));
     refresh();
+    showDetail();
   };
-  h0.addEventListener("change", () => setRange(+h0.value, +h1.value));
-  h1.addEventListener("change", () => setRange(+h0.value, +h1.value));
   presets.forEach((p) => p.addEventListener("click", () => { const [a, b] = p.dataset.r!.split(",").map(Number); setRange(a, b); }));
   const loadYearData = async (y: number) => {
     year = y;
     yearDongs = await loadYear(y);
     if (styleReady) refresh();
+    showDetail();
   };
+  // 화면에 쓰는 해는 하나: 가장 최근에 끝난 해 (해가 바뀌어 새 1년치가 들어오면 자료 쪽에서 자동으로 바뀐다)
   loadYearsIndex().then((ys) => {
     yearInfos = ys;
-    yearSel.innerHTML = [...ys].reverse().map((y) => `<option value="${y.year}">${y.year}년${y.partial ? ` (일부 · 밤 ${y.nights}일)` : ""}</option>`).join("");
-    const want = Number(params.get("y")) || ys[ys.length - 1]?.year;
-    if (want) { yearSel.value = String(want); loadYearData(want); }
+    const want = ys[ys.length - 1]?.year;
+    if (want) loadYearData(want);
   });
-  yearSel.addEventListener("change", () => loadYearData(+yearSel.value));
   const stop = () => {};
   // 배경 지도 전환 + 색 진하기
   const viewButtons = [...root.querySelectorAll<HTMLButtonElement>(".basemap button")];
   // 상세 추정 지도 (켜면 동네 색칠 대신 10m 칸 추정값을 보여 준다. 동네를 누르는 동작은 그대로)
   const tdet = root.querySelector<HTMLInputElement>("#tdet")!;
   let nmap: NoiseMap | null = null;
-  const detailOn = () => tdet.checked && !!nmap;
+  // 상세 지도는 한 해의 밤(22~06시)만 계산돼 있다. 다른 연도·시간대를 고르면 동네 색칠(측정값)로 돌아간다
+  const detailFits = () => !!nmap && year === nmap.meta.year && (isNight() || nmap.hasDay);
+  const detailWhen = () => (isNight() ? "밤" : "낮");
+  let drawn = "";   // 지금 상세 지도에 그려진 시간대
+  const detailOn = () => tdet.checked && detailFits();
   const showDetail = async () => {
     if (tdet.checked && !nmap) {
       nmap = await loadNoiseMap();
@@ -319,10 +321,30 @@ export function renderMap(root: HTMLElement, data: Data, params: URLSearchParams
     }
     if (nmap && styleReady && !map.getSource("detail")) {
       map.addSource("detail", { type: "canvas", canvas: nmap.canvas, coordinates: nmap.coords, animate: false } as any);
-      map.addLayer({ id: "detail", type: "raster", source: "detail", paint: { "raster-opacity": 0.8, "raster-fade-duration": 0 } }, "line");
-      root.querySelector<HTMLElement>("#dyear")!.textContent = `· ${nmap.meta.year}년`;
+      map.addLayer({ id: "detail", type: "raster", source: "detail", paint: { "raster-opacity": 0.9, "raster-fade-duration": 0 } }, "line");
+    }
+    const note = root.querySelector<HTMLElement>("#detnote")!;
+    if (nmap && detailOn() && drawn !== range.join()) {
+      // 고른 시간대의 시각들로 다시 계산해 그린다 (밤 22~06시는 기본 밤 지도)
+      const want = range.join();
+      const ok = await nmap.setMode(isNight() ? "night" : "day");
+      if (want !== range.join()) return;               // 그 사이 다시 바꿨으면 그쪽 호출이 마무리한다
+      if (ok) {
+        drawn = want;
+        const src: any = map.getSource("detail");
+        if (src?.play) { src.play(); requestAnimationFrame(() => src.pause()); }
+        map.triggerRepaint();
+        const sh = nmap.shift(), lo = DETAIL_MID - DETAIL_SPAN + sh;
+        root.querySelector<HTMLElement>("#dticks")!.innerHTML = [0, 1, 2, 3, 4].map((i) => `<span>${lo + i * DETAIL_SPAN / 2}${i === 0 ? " 이하" : i === 4 ? " 이상" : ""}</span>`).join("");
+        root.querySelector<HTMLElement>("#dramp")!.setAttribute("aria-label", `${lo}dB(파랑, 조용함)에서 가운데 ${lo + DETAIL_SPAN}dB(회색)를 지나 ${lo + 2 * DETAIL_SPAN}dB(노랑, 시끄러움)까지 이어지는 색`);
+        const ds = root.querySelector<HTMLElement>("#dshift")!;
+        ds.hidden = sh === 0;
+        ds.innerHTML = `낮은 서울 전체가 밤보다 약 <b>${sh}dB</b> 높아, 자리별 차이가 보이도록 색 기준을 그만큼 옮겼습니다. 같은 색이라도 밤 지도와 dB가 다릅니다.`;
+      }
     }
     if (map.getLayer("detail")) map.setLayoutProperty("detail", "visibility", detailOn() ? "visible" : "none");
+    note.hidden = !(tdet.checked && nmap && !detailFits());
+    if (nmap) note.textContent = "이 시간대의 상세 지도가 아직 없어 동네 단위 측정값으로 보여 드립니다.";
     const bld = root.querySelector<HTMLInputElement>("#tbld")!.checked;
     root.querySelector<HTMLElement>("#dlegend")!.hidden = !detailOn() || bld;
     root.querySelector<HTMLElement>("#nlegend")!.hidden = detailOn() || bld;
@@ -339,7 +361,7 @@ export function renderMap(root: HTMLElement, data: Data, params: URLSearchParams
     const off = v === 0; // 0% = 소음 색 없이 배경 지도만
     opLabel.textContent = off ? "0% (색 끔 · 지도만 보기)" : `${op.value}%`;
     if (!map.getLayer("fill")) return;
-    map.setPaintProperty("fill", "fill-opacity", detailOn() ? 0 : v);
+    map.setPaintProperty("fill", "fill-opacity", detailOn() ? 0 : ["case", ["boolean", ["feature-state", "has"], false], v, 0]);
     if (map.getLayer("detail")) map.setPaintProperty("detail", "raster-opacity", v);
     map.setPaintProperty("ext", "fill-extrusion-opacity", off ? 0 : Math.min(1, v + 0.1));
     if (map.getLayer("bfill")) map.setPaintProperty("bfill", "fill-opacity", off ? 0 : Math.min(1, v + 0.05));
@@ -352,7 +374,7 @@ export function renderMap(root: HTMLElement, data: Data, params: URLSearchParams
     // 밝은 지도·항공사진 위에서는 동 경계를 눈에 띄게, 색은 조금 옅게 해서 바탕이 보이게
     map.setPaintProperty("line", "line-color", mode === "sat" ? "#ffffff" : mode === "light" ? "#3a4763" : "#0b111c");
     map.setPaintProperty("line", "line-opacity", mode === "sat" ? 0.55 : 1);
-    op.value = mode === "sat" ? "45" : mode === "light" ? "65" : "80";
+    op.value = mode === "sat" ? "75" : mode === "light" ? "75" : "90";
     applyOpacity();
   };
   // 보기 방식 3가지: 배경지도 / 실사 2D(항공사진) / 실사 3D(브이월드 3D 화면)
@@ -526,7 +548,7 @@ export function renderMap(root: HTMLElement, data: Data, params: URLSearchParams
     const on = detailOn();
     const flags = on ? await nmap!.flagsAt(p.lon, p.lat) : [];
     panel.querySelector(".placecard")?.remove();
-    panel.prepend(placeCard(p, yd, near, year, on ? nmap!.valueAt(p.lon, p.lat) : null, nmap?.meta.year ?? 0, on ? nmap!.profile(p.lon, p.lat) : null, flags));
+    panel.prepend(placeCard(p, yd, near, year, on ? nmap!.valueAt(p.lon, p.lat) : null, `${nmap?.meta.year ?? ""}년 ${detailWhen()}`, on ? nmap!.profile(p.lon, p.lat) : null, flags));
   };
 
   // 공유한 주소로 들어오면 장소 다시 표시

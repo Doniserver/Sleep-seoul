@@ -84,3 +84,29 @@ def test_twelve_hour_measure_time_falls_back_to_registration_time():
             'M,S3,2023-01-02_12:07:00,residential_area,G,D,1,0,60,40,2023-01-02 0:07']
     df = _read_csv_bytes(("\n".join(rows) + "\n").encode("cp949"))
     assert sorted(df["ts"].dt.hour.tolist()) == [0, 14]
+
+
+# ---- 화면에는 '가장 최근에 끝난 해' 하나만 남긴다 ----
+
+def test_display_year_is_latest_year_with_enough_nights():
+    from pipeline import yearly as Y
+    assert Y.display_year({2024: 353, 2025: 355}) == 2025
+    # 해가 막 바뀌어 지난해 자료가 일부(매일 받은 석 달치)뿐이면 그 전 해를 그대로 둔다
+    assert Y.display_year({2025: 355, 2026: 80}) == 2025
+    # 지난해 1년치가 들어오면 그때 넘어간다
+    assert Y.display_year({2025: 355, 2026: 350}) == 2026
+    assert Y.display_year({2026: 80}) is None
+    assert Y.display_year({}) is None
+
+
+def test_prune_keeps_only_display_year_files(tmp_path):
+    from pipeline import yearly as Y
+    for y in (2024, 2025):
+        for suf in ("", "_calendar", "_sensors"):
+            (tmp_path / f"{y}{suf}.json").write_text("{}")
+    (tmp_path / "trends.json").write_text("{}")
+    (tmp_path / "index.json").write_text("[]")
+    index = {2024: {"year": 2024}, 2025: {"year": 2025}}
+    Y.prune(tmp_path, index, 2025)
+    assert sorted(p.name for p in tmp_path.iterdir()) == ["2025.json", "2025_calendar.json", "2025_sensors.json", "index.json"]
+    assert list(index) == [2025]

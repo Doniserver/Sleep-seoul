@@ -16,7 +16,7 @@ export async function renderCompare(root: HTMLElement, data: Data, params: URLSe
   <section class="compare">
     <h2>두 동네 비교</h2>
     <p class="hint">이사 후보 두 곳의 밤 바깥 환경을 나란히 봅니다. 값이 낮을수록 조용합니다.</p>
-    <label class="cyear">연도 <select id="cy">${[...years].reverse().map((y) => `<option value="${y.year}" ${y.year === year ? "selected" : ""}>${y.year}년${y.partial ? " (일부)" : ""}</option>`).join("")}</select></label>
+    <label class="cyear" ${years.length > 1 ? "" : "hidden"}>연도 <select id="cy">${[...years].reverse().map((y) => `<option value="${y.year}" ${y.year === year ? "selected" : ""}>${y.year}년${y.partial ? " (일부)" : ""}</option>`).join("")}</select></label>
     <div class="pick">
       <label><span class="sw" style="background:${C1}"></span>후보 A <select id="ca">${opt(a0)}</select></label>
       <label><span class="sw dash" style="background:${C2}"></span>후보 B <select id="cb">${opt(b0)}</select></label>

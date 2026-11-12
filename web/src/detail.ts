@@ -8,6 +8,7 @@ export interface NoiseMapMeta {
   accuracy: { n: number; mae: number; within3: number; within5: number; baseline_mae: number };
   quantiles: Record<string, number>;
   flags?: { file: string; items: { bit: number; name: string; label: string }[] };
+  day?: { file: string; hours: [number, number]; accuracy: { mae: number; within3: number; within5: number } } | null;  // 낮(06~22시) 지도
 }
 
 /** 단면: 근처에서 가장 시끄러운 쪽(큰길)에서 이 자리를 지나 안쪽으로 이어지는 선 위의 추정값 */
@@ -20,18 +21,28 @@ export interface NoiseMap {
   valueAt(lon: number, lat: number): number | null; // 그 자리의 추정 dB
   profile(lon: number, lat: number): Profile | null;
   flagsAt(lon: number, lat: number): Promise<string[]>; // 그 자리의 주의 표시 문구
+  hasDay: boolean;                                 // 낮 지도도 있는가
+  /** 밤 지도 또는 낮 지도로 바꿔 그린다. 그릴 수 없으면 false */
+  setMode(mode: "night" | "day"): Promise<boolean>;
+  shift(): number;                                 // 지금 색 기준이 밤 기준보다 몇 dB 위로 옮겨졌는가
 }
 
-// 조용함 = 파랑(어두움) → 시끄러움 = 주황·노랑(밝음). 동네 색과 같은 계열이지만 1~2dB 차이가 보이게 촘촘히.
+// 발산형 색: 서울 중간(밤 약 53.5dB)을 어두운 중립 회색으로 두고, 조용한 쪽은 파랑·시끄러운 쪽은 주황으로 갈수록 밝아진다.
+// 어두운 회색조 배경지도 위에서 양쪽 끝이 모두 또렷하고, 파랑↔주황은 색각 이상에서도 구분된다. 시끄러운 끝(노랑)이 조용한 끝보다 더 밝다.
+export const DETAIL_MID = 52.5, DETAIL_SPAN = 5;      // 색 기준: 가운데 ± 5dB
 export const DETAIL_STOPS: [number, string][] = [
-  [49, "#23406b"], [50.5, "#2f5d96"], [52, "#5b86b8"], [53.5, "#a9b9c9"], [55, "#e0a458"], [57, "#f5b041"], [59, "#ffe08a"],
+  [47.5, "#9ad6ff"], [49, "#4a9bf0"], [50.25, "#2c6bc7"], [51.5, "#27477f"], [52.5, "#3d424b"], [53.5, "#96501f"], [55, "#ea7d22"], [56.5, "#ffb53d"], [57.5, "#ffe493"],
 ];
 
 const hex = (h: string) => [parseInt(h.slice(1, 3), 16), parseInt(h.slice(3, 5), 16), parseInt(h.slice(5, 7), 16)];
 
+// 낮은 서울 전체가 밤보다 몇 dB 높다. 색이 한쪽 끝에 몰리지 않도록 색 기준 전체를 그만큼(정수 dB) 옮긴다. 범례 숫자도 함께 바뀐다.
+let colorShift = 0;
+
 /** dB → 색 (정지점 사이는 이어서 섞음) */
 export function detailColor(db: number): [number, number, number] {
   const s = DETAIL_STOPS;
+  db -= colorShift;
   if (db <= s[0][0]) return hex(s[0][1]) as [number, number, number];
   for (let i = 1; i < s.length; i++) {
     if (db <= s[i][0]) {
@@ -62,17 +73,59 @@ export function loadNoiseMap(): Promise<NoiseMap | null> {
       ctx.drawImage(img, 0, 0);
       const im = ctx.getImageData(0, 0, meta.width, meta.height);
       const px = im.data, n = meta.width * meta.height;
-      const vals = new Uint8Array(n);
+      const night = new Uint8Array(n);
+      for (let i = 0; i < n; i++) night[i] = px[i * 4];
+      let vals: Uint8Array = night;                               // 지금 화면에 쓰는 값 (밤 또는 고른 시간대)
+      const median = (a: Uint8Array) => {
+        const hist = new Uint32Array(256); let cnt = 0;
+        for (let i = 0; i < n; i++) if (a[i]) { hist[a[i]]++; cnt++; }
+        let acc = 0;
+        for (let v = 1; v < 256; v++) { acc += hist[v]; if (acc >= cnt / 2) return meta.encoding.min_db + (v - 1) * meta.encoding.step_db; }
+        return 0;
+      };
+      const nightMedian = median(night);
       // 값(0~255)마다 색을 미리 정해 두고 칸마다 찾아 쓴다
-      const lut = new Uint8Array(256 * 3);
-      for (let v = 1; v < 256; v++) lut.set(detailColor(meta.encoding.min_db + (v - 1) * meta.encoding.step_db), v * 3);
-      for (let i = 0; i < n; i++) {
-        const v = px[i * 4];
-        vals[i] = v;
-        if (v === 0) { px[i * 4 + 3] = 0; continue; }
-        px[i * 4] = lut[v * 3]; px[i * 4 + 1] = lut[v * 3 + 1]; px[i * 4 + 2] = lut[v * 3 + 2]; px[i * 4 + 3] = 255;
-      }
-      ctx.putImageData(im, 0, 0);
+      const paint = () => {
+        // 가운데(중간)일수록 비쳐서 배경지도가 보이고, 조용한 쪽·시끄러운 쪽 끝으로 갈수록 진해진다
+        const lut = new Uint8Array(256 * 3), alpha = new Uint8Array(256);
+        for (let v = 1; v < 256; v++) {
+          const db = meta.encoding.min_db + (v - 1) * meta.encoding.step_db;
+          lut.set(detailColor(db), v * 3);
+          alpha[v] = Math.round(255 * (0.5 + 0.45 * Math.min(1, Math.abs(db - colorShift - DETAIL_MID) / DETAIL_SPAN)));
+        }
+        for (let i = 0; i < n; i++) {
+          const v = vals[i];
+          if (v === 0) { px[i * 4 + 3] = 0; continue; }
+          px[i * 4] = lut[v * 3]; px[i * 4 + 1] = lut[v * 3 + 1]; px[i * 4 + 2] = lut[v * 3 + 2]; px[i * 4 + 3] = alpha[v];
+        }
+        ctx.putImageData(im, 0, 0);
+      };
+      paint();
+      // 낮 지도 (처음 쓸 때 한 번만 받는다)
+      let dayVals: Promise<Uint8Array | null> | null = null;
+      const loadDay = () => (dayVals ??= (async () => {
+        if (!meta.day) return null;
+        try {
+          const g = new Image(); g.src = `data/noisemap/${meta.day.file}`; await g.decode();
+          const cv = document.createElement("canvas"); cv.width = meta.width; cv.height = meta.height;
+          const cx = cv.getContext("2d")!; cx.drawImage(g, 0, 0);
+          const d = cx.getImageData(0, 0, meta.width, meta.height).data, out = new Uint8Array(n);
+          for (let i = 0; i < n; i++) out[i] = d[i * 4];
+          return out;
+        } catch { return null; }
+      })());
+      let token = 0;
+      const setMode = async (mode: "night" | "day"): Promise<boolean> => {
+        const my = ++token;
+        if (mode === "night") { vals = night; colorShift = 0; paint(); return true; }
+        const d = await loadDay();
+        if (!d) return false;
+        if (my !== token) return true;                // 그 사이 다시 바꿨으면 그쪽에 맡긴다
+        vals = d;
+        colorShift = Math.round(median(d) - nightMedian);
+        paint();
+        return true;
+      };
       const b = meta.bounds, yN = mercY(b.north), yS = mercY(b.south);
       const cellOf = (lon: number, lat: number) => {
         const c = Math.floor(((lon - b.west) / (b.east - b.west)) * meta.width);
@@ -125,7 +178,7 @@ export function loadNoiseMap(): Promise<NoiseMap | null> {
           return meta.flags.items.filter((it) => (f[i] >> it.bit) & 1).map((it) => it.label);
         },
         coords: [[b.west, b.north], [b.east, b.north], [b.east, b.south], [b.west, b.south]],
-        valueAt,
+        valueAt, setMode, hasDay: !!meta.day, shift: () => colorShift,
       };
     } catch {
       return null;   // 파일이 없으면 상세 지도 없이 동작

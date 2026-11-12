@@ -1,9 +1,9 @@
-// 조용함 = 파랑(어두움) → 시끄러움 = 주황(밝음). 명도가 단계마다 올라가서 색약·흑백에서도 순서가 읽힘.
+// 발산형 색: 서울 중간(52~54dB)을 어두운 중립 회색으로 두고, 조용한 쪽은 파랑·시끄러운 쪽은 주황으로 갈수록 밝아진다.
+// 파랑↔주황은 색각 이상에서도 구분되고, 시끄러운 끝(노랑)이 조용한 끝보다 더 밝아 명도로도 순서가 읽힌다.
 // 기종 보정 뒤 동 값이 48~58dB에 몰려 있어 2dB 간격으로 나눈다
 export const BREAKS = [48, 50, 52, 54, 56, 58];
-export const COLORS = ["#23406b", "#2f5d96", "#5b86b8", "#a9b9c9", "#e0a458", "#f5b041", "#ffe08a"];
-export const NODATA = "#3a3f4b";
-export const LABELS = ["48 미만", "48–50", "50–52", "52–54", "54–56", "56–58", "58 이상"];
+export const COLORS = ["#7cc4ff", "#3a8eea", "#27559b", "#5a606b", "#96501f", "#ea7d22", "#ffc650"];
+export const NODATA = "#161c29";   // 차트의 빈 칸. 지도에서는 색을 칠하지 않는다(배경지도가 그대로 보임)
 
 export function colorFor(v: number | null | undefined): string {
   if (v === null || v === undefined || Number.isNaN(v)) return NODATA;

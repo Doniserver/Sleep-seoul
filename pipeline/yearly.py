@@ -291,9 +291,31 @@ def this_year() -> int:
     return dt.datetime.now(dt.timezone(dt.timedelta(hours=9))).year
 
 
+MIN_FULL_YEAR_NIGHTS = 300   # 이보다 적으면 '1년치'로 보지 않는다 (해가 막 바뀐 직후의 일부 자료로 넘어가지 않게)
+
+
+def display_year(nights: dict[int, int]) -> int | None:
+    """화면에 쓸 해: 밤 수가 충분한 해 가운데 가장 최근 해. 없으면 None."""
+    ok = [y for y, n in nights.items() if n >= MIN_FULL_YEAR_NIGHTS]
+    return max(ok) if ok else None
+
+
+def prune(out: Path, index: dict, keep: int) -> None:
+    """keep 해만 남기고 다른 해의 결과 파일과 목록, 연도 추이 파일을 지운다."""
+    for f in out.glob("*.json"):
+        m = re.match(r"(\d{4})", f.stem)
+        if (m and int(m.group(1)) != keep) or f.name == "trends.json":
+            f.unlink()
+    for y in [y for y in index if y != keep]:
+        del index[y]
+
+
 def run(years: list[int] | None = None, recollect: bool = False):
+    """기본: 가장 최근에 끝난 해 하나만 만들고 나머지 해는 지운다 (2027년이 되어 2026년 1년치가 들어오면 자동으로 넘어감).
+    --year 로 해를 지정하면 그 해들을 추가로 만든다(분석용, 다른 해를 지우지 않음)."""
     feats = S.load_boundaries()
-    years = [y for y in (years or available_years()) if y < this_year()]
+    explicit = years is not None
+    years = sorted((y for y in (years or available_years()) if y < this_year()), reverse=True)
     index_path = OUT / "index.json"
     index = {y["year"]: y for y in (json.loads(index_path.read_text(encoding="utf-8")) if index_path.exists() else [])
              if y["year"] < this_year()}
@@ -301,34 +323,43 @@ def run(years: list[int] | None = None, recollect: bool = False):
         m = re.match(r"(\d{4})", f.stem)
         if m and int(m.group(1)) >= this_year():
             f.unlink()
-    for y in sorted(years, reverse=True):     # 새 연도부터: 옛 형식에 붙일 센서 정보를 먼저 확보
+    for y in years:                            # 새 연도부터
         cache = YEARS_RAW / f"{y}.parquet"
         newer_raw = any(p.stat().st_mtime > cache.stat().st_mtime for p in raw_sources(y)) if cache.exists() else True
         df = pd.read_parquet(cache) if cache.exists() and not recollect and not newer_raw and y < max(years) else collect_year(y)
         if df is None or df.empty:
             print(f"[yearly] {y}: 자료 없음")
-            continue
-        res = summarize_year(y, df, feats)
-        if not recollect and y in index and index[y].get("nights", 0) > res["info"]["nights"]:
-            # 예: 자동 갱신(매일 받은 자료만)이 연도 zip으로 만든 더 완전한 결과를 덮어쓰지 않게
-            print(f"[yearly] {y}: 기존 결과(밤 {index[y]['nights']}일)가 더 완전해서 유지")
-            continue
-        _dump(OUT / f"{y}.json", res["dongs"])
-        _dump(OUT / f"{y}_calendar.json", compact_calendar(res["calendar"], res["info"]))
-        _dump(OUT / f"{y}_sensors.json", res["sensors"])
-        index[y] = res["info"]
-        _dump(index_path, [index[k] for k in sorted(index)])   # 중간에 멈춰도 끝난 해는 남게
-        print(f"[yearly] {y}: 밤 {res['info']['nights']}일, 동 {res['info']['dongs_with_data']}곳, 서울 중앙값 {res['info']['seoul_median']}dB")
+        else:
+            res = summarize_year(y, df, feats)
+            n = res["info"]["nights"]
+            if not explicit and n < MIN_FULL_YEAR_NIGHTS:
+                print(f"[yearly] {y}: 밤 {n}일뿐이라 아직 1년치가 아님 → 건너뜀")
+            elif not recollect and y in index and index[y].get("nights", 0) > n:
+                # 예: 자동 갱신(매일 받은 자료만)이 연도 zip으로 만든 더 완전한 결과를 덮어쓰지 않게
+                print(f"[yearly] {y}: 기존 결과(밤 {index[y]['nights']}일)가 더 완전해서 유지")
+            else:
+                _dump(OUT / f"{y}.json", res["dongs"])
+                _dump(OUT / f"{y}_calendar.json", compact_calendar(res["calendar"], res["info"]))
+                _dump(OUT / f"{y}_sensors.json", res["sensors"])
+                index[y] = res["info"]
+                print(f"[yearly] {y}: 밤 {n}일, 동 {res['info']['dongs_with_data']}곳, 서울 중앙값 {res['info']['seoul_median']}dB")
+        if not explicit and display_year({k: v.get("nights", 0) for k, v in index.items()}) == y:
+            break                              # 가장 최근의 온전한 해를 확보했으면 더 옛 해는 만들지 않는다
+    if not explicit:
+        keep = display_year({k: v.get("nights", 0) for k, v in index.items()})
+        if keep is not None:
+            prune(OUT, index, keep)
+            print(f"[yearly] 화면에 쓰는 해: {keep}년 (다른 해는 지움)")
     _dump(index_path, [index[k] for k in sorted(index)])
-    # 동별 연도 추이
-    trends: dict[str, dict[str, float | None]] = {}
-    for y in sorted(index):
-        f = OUT / f"{y}.json"
-        if not f.exists():
-            continue
-        for code, r in json.loads(f.read_text(encoding="utf-8")).items():
-            trends.setdefault(code, {})[str(y)] = r.get("l_night")
-    _dump(OUT / "trends.json", trends)
+    if len(index) > 1:                         # 여러 해를 일부러 만든 경우에만 동별 연도 추이
+        trends: dict[str, dict[str, float | None]] = {}
+        for y in sorted(index):
+            f = OUT / f"{y}.json"
+            if not f.exists():
+                continue
+            for code, r in json.loads(f.read_text(encoding="utf-8")).items():
+                trends.setdefault(code, {})[str(y)] = r.get("l_night")
+        _dump(OUT / "trends.json", trends)
 
 
 if __name__ == "__main__":

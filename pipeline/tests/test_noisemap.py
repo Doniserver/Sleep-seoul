@@ -123,3 +123,12 @@ def test_pack_flags_sets_one_bit_per_condition():
     f = N.pack_flags([a, b, c])
     assert f.dtype == np.uint8
     assert f.tolist() == [[1, 4], [7, 1]]            # 첫 조건 = 1, 둘째 = 2, 셋째 = 4
+
+
+# ---- 낮 지도: 시각별 값의 에너지 평균 ----
+
+def test_range_db_is_energy_mean_of_hours():
+    H = np.array([[40.0, 60.0, 50.0], [50.0, 50.0, 50.0]])
+    out = N.range_db(H, [0, 1])
+    assert out[0] == pytest.approx(10 * np.log10((1e4 + 1e6) / 2), abs=1e-6)
+    assert out[1] == pytest.approx(50.0)

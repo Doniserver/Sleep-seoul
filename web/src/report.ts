@@ -61,7 +61,7 @@ export async function renderReport(el: HTMLElement, data: Data, d: Dong, opts: {
     </section>
     <section><h3>요일 × 시간 소음</h3><div data-x="heat" class="chart"></div></section>
     <section><h3>조용한 밤 달력 <small>(${t.quiet_night}dB 미만인 밤 = 초록${opts.year ? ` · ${opts.year}년` : ""})</small></h3><div data-x="cal" class="chart"></div></section>
-    <section><h3>연도별 밤 소음 <small>(주황 = 이 동, 점선 = 서울 행정동 중앙값, 빈 점 = 일부 기간)</small></h3><div data-x="trend" class="chart"></div></section>
+    <section data-x="trendbox" hidden><h3>연도별 밤 소음 <small>(주황 = 이 동, 점선 = 서울 행정동 중앙값, 빈 점 = 일부 기간)</small></h3><div data-x="trend" class="chart"></div></section>
     <section data-x="bld"></section>
     ${opts.onCompare ? `<div class="actions"><button type="button" data-x="cmp">이 동네를 비교에 담기</button></div>` : ""}
   `;
@@ -72,7 +72,9 @@ export async function renderReport(el: HTMLElement, data: Data, d: Dong, opts: {
   const cal = opts.year ? await loadYearCalendar(opts.year) : await loadCalendar(data);
   calendar(q("cal"), cal[d.code], t.quiet_night);
   const [idx, tr] = await Promise.all([loadYearsIndex(), loadTrends()]);
-  yearTrend(q("trend"), idx.map((y) => ({ year: y.year, v: tr[d.code]?.[String(y.year)] ?? null, partial: y.partial })),
+  if (idx.length > 1) q("trendbox").hidden = false;   // 해가 하나뿐이면 추이 그림은 보이지 않는다
+  if (idx.length > 1)
+    yearTrend(q("trend"), idx.map((y) => ({ year: y.year, v: tr[d.code]?.[String(y.year)] ?? null, partial: y.partial })),
     idx.map((y) => ({ year: y.year, v: y.seoul_median })), t, opts.year ?? undefined);
   await renderBuildingsSummary(q("bld"), data, d.code);
 }
