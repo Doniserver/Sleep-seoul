@@ -13,7 +13,7 @@ from pipeline import metrics as M
 def load_hourly(days: int = 365, end: dt.date | None = None) -> pd.DataFrame:
     files = sorted(C.HOURLY.glob("*.parquet"))
     if not files:
-        raise SystemExit("data/hourly 가 비어 있습니다. 먼저 python -m pipeline.fetch_sdot 실행")
+        raise SystemExit("data/서울열린데이터광장/매일수집 가 비어 있습니다. 먼저 python -m pipeline.fetch_sdot 실행")
     last = end or dt.date.fromisoformat(files[-1].stem)
     first = last - dt.timedelta(days=days - 1)
     use = [f for f in files if first <= dt.date.fromisoformat(f.stem) <= last]

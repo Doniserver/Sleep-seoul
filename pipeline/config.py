@@ -2,12 +2,21 @@
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parent.parent
-RAW = ROOT / "data" / "raw"
-HOURLY = ROOT / "data" / "hourly"          # 정제된 시간별 소음·조도 (일 단위 parquet, 커밋함)
-DERIVED = ROOT / "data" / "derived"        # 중간 산출물 (커밋 안 함)
+# 자료 폴더는 "어디서 받았는가"로 나눈다. 폴더마다 무엇이 들어 있는지는 data/README.md 에 적는다.
+DATA = ROOT / "data"
+SEOUL = DATA / "서울열린데이터광장"           # 서울시 S-DoT
+SDOT_RAW = SEOUL / "원본"                   # 연도 zip, 주간 CSV, 설치 위치정보, API 명세서 (커밋 안 함)
+LOCATIONS = SEOUL / "센서위치_사본"          # 설치 위치정보 사본 (자동 갱신용, 커밋함)
+HOURLY = SEOUL / "매일수집"                 # API로 매일 받은 시간별 소음·조도 (일 단위 parquet, 커밋함)
+YEARS_DERIVED = SEOUL / "연도별정리"         # 연도 zip을 풀어 정리한 시간 자료 (커밋 안 함)
+VWORLD = DATA / "브이월드"                  # 국토교통부 브이월드: 도로중심선, 철도시설, 건물 (커밋 안 함)
+SBIZ = DATA / "공공데이터포털" / "상가정보"    # 소상공인시장진흥공단 상가정보 (커밋 안 함)
+KAPT = DATA / "공공데이터포털" / "공동주택"    # 국토교통부 공동주택 기본정보 (커밋 안 함)
+BOUNDARY_DIR = DATA / "공개저장소_행정동경계"  # vuski/admdongkor (커밋 안 함)
+SCRATCH = DATA / "분석임시"                 # 계산 중 잠깐 쓰는 파일, 조사용 임시 파일 (커밋 안 함)
 WEB_DATA = ROOT / "web" / "public" / "data"
 
-BOUNDARY_FILE = RAW / "boundary" / "HangJeongDong_ver20261001.geojson"
+BOUNDARY_FILE = BOUNDARY_DIR / "HangJeongDong_ver20261001.geojson"
 BOUNDARY_VERSION = "2026-10-01"
 LOCATION_GLOB = "*설치 위치정보*.xlsx"
 CSV_GLOB = "S-DoT_NATURE_*.csv"

@@ -1,6 +1,6 @@
 """서울 전역 건물 수집 (브이월드 2D 데이터 API `LT_C_BLDGINFO`, GIS건물통합정보).
 
-    python -m pipeline.fetch_bldg        # → data/derived/bldg/{칸}.parquet (칸마다 저장, 다시 실행하면 이어서 받음)
+    python -m pipeline.fetch_bldg        # → data/브이월드/bldg/{칸}.parquet (칸마다 저장, 다시 실행하면 이어서 받음)
 
 속성(실제 응답 확인, 2026-11): height(높이 m), grnd_flr(지상 층수), usability(용도 코드), archarea(건축면적),
 useapr_day(사용승인일 YYYYMMDD), geometry(다각형). 높이가 0이면 층수 × 3m로 본다.
@@ -21,7 +21,7 @@ from .fetch_roads import SEOUL
 
 URL = "https://api.vworld.kr/req/data"
 STEP = 0.02
-OUT = C.DERIVED / "bldg"
+OUT = C.VWORLD / "bldg"
 
 
 def building_height(height, floors) -> float:

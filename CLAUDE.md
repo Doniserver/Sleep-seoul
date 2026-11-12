@@ -102,7 +102,7 @@
 ## 7. 기술 스택
 
 - 데이터 처리: Python 3.11+, pandas(또는 polars), geopandas, pyarrow
-- 저장: 원본은 저장소에 커밋하지 않음(`data/raw/`는 .gitignore). 집계 결과만 `web/public/data/*.json`(목표: 전체 수 MB 이하)
+- 저장: 원본은 저장소에 커밋하지 않음(`data/` 아래 출처별 폴더, 커밋 여부는 `data/README.md`와 .gitignore). 집계 결과만 `web/public/data/*.json`(목표: 전체 수 MB 이하)
 - 웹: Vite + TypeScript, 지도 MapLibre GL JS(무료 타일), 차트 D3. 프레임워크는 필요할 때만(React 허용)
 - 배포: GitHub Pages 또는 Vercel
 - 자동 갱신: GitHub Actions — 매일 1회 최신 데이터 수집 → 집계 → JSON 커밋 → 재배포
@@ -126,7 +126,7 @@
 │  ├─ classify.py          # 소음 패턴 분류(군집)
 │  ├─ report_ai.py         # 동네 리포트 문장 생성 + 숫자 검증
 │  └─ tests/
-├─ data/raw/               # gitignore
+├─ data/                   # 출처 이름별 폴더 (data/README.md 참고)
 ├─ web/
 │  ├─ public/data/         # 집계 JSON (커밋)
 │  └─ src/
@@ -181,3 +181,5 @@
 - 큰 원본 파일은 커밋하지 않는다. 키·토큰을 코드에 넣지 않는다.
 - 외부 사이트를 자동으로 긁는 코드는 만들지 않는다. 공식 API·파일만 사용한다.
 - 한국어 UI. 코드 주석과 커밋 메시지는 한국어 또는 영어 중 팀이 정한 것으로 통일.
+- **사이트 설명서 한 장(`docs/사이트-설명서.pdf`)을 항상 최신으로 유지한다.** 자료 출처·계산 방법·화면 표현이 바뀌는 작업을 하면, 같은 작업 안에서 `pipeline/summary_pdf.py`의 글을 고치고 `python -m pipeline.summary_pdf`로 다시 만든다. 반드시 1쪽, 파일은 하나만(덮어쓰기).
+- 새 자료를 추가하면 `data/README.md`의 표에 출처·쓰임·만드는 명령을 한 줄 더한다. 자료 폴더는 받은 곳 이름으로 나눈다(`data/서울열린데이터광장`, `data/브이월드`, `data/공공데이터포털` 등).

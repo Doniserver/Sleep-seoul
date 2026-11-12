@@ -29,7 +29,7 @@ from pipeline import sensors as S
 
 LIST_URL = "https://apis.data.go.kr/1613000/AptListService4/getSigunguAptList4"
 BASIS_URL = "https://apis.data.go.kr/1613000/AptBasisInfoServiceV5/getAphusBassInfoV5"
-CACHE = C.DERIVED / "kapt_basis.json"
+CACHE = C.KAPT / "kapt_basis.json"
 
 
 def _key() -> str:
@@ -86,7 +86,7 @@ def list_seoul_complexes(sgg_codes: list[str]) -> list[dict]:
 
 
 def fetch_basis(codes: list[str]) -> dict[str, dict]:
-    C.DERIVED.mkdir(parents=True, exist_ok=True)
+    C.KAPT.mkdir(parents=True, exist_ok=True)
     cache = json.loads(CACHE.read_text(encoding="utf-8")) if CACHE.exists() else {}
     todo = [c for c in codes if c not in cache]
     for i, code in enumerate(todo, 1):

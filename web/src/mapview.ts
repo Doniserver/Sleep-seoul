@@ -20,9 +20,9 @@ function placeCard(p: Place, d: Dong, near: Near[], year: number, est: number | 
   el.setAttribute("aria-label", `${p.name} 주변 소음`);
   const m = (x: number) => (x < 1000 ? `${Math.round(x / 10) * 10}m` : `${(x / 1000).toFixed(1)}km`);
   el.innerHTML = `
-    <p class="pc-kicker">검색한 장소</p>
-    <h2>${escHtml(p.name)}</h2>
-    ${p.addr ? `<p class="hint">${escHtml(p.addr)}</p>` : ""}
+    <p class="pc-kicker">${p.name === "지도에서 고른 자리" ? "고른 자리" : "검색한 장소"}</p>
+    <h2>${escHtml(p.name === "지도에서 고른 자리" && p.addr ? p.addr : p.name)}</h2>
+    ${p.addr && p.name !== "지도에서 고른 자리" ? `<p class="hint">${escHtml(p.addr)}</p>` : ""}
     <div class="pc-row">
       ${est !== null ? `<div><span class="chip sm" style="background:${detailCss(est)}"></span><b>${fmt(est, 1, "dB")}</b>
         <p class="lbl">이 자리 <span class="est">추정</span> · ${escHtml(estLabel)}</p></div>` : ""}
@@ -86,9 +86,9 @@ export function renderMap(root: HTMLElement, data: Data, params: URLSearchParams
       <div id="map" role="application" aria-label="행정동별 밤 소음 지도. 아래 검색창으로도 동네를 고를 수 있습니다."></div>
       <div class="ctrl">
         <form class="search" id="qform" role="search">
-          <label for="q">동네·건물·장소 찾기</label>
+          <label for="q" class="sr">동네·건물·장소 찾기</label>
           <div class="qrow">
-            <input list="dong-list" id="q" placeholder="예: 역삼1동, 호암교수회관, 강남역" autocomplete="off" />
+            <input list="dong-list" id="q" placeholder="동네·건물·역 이름으로 찾기" autocomplete="off" />
             <button type="submit">찾기</button>
           </div>
           <p id="qmsg" class="qmsg" aria-live="polite"></p>
@@ -104,6 +104,9 @@ export function renderMap(root: HTMLElement, data: Data, params: URLSearchParams
           <button type="button" data-view="sat" aria-pressed="false">실사 2D</button>
           <button type="button" data-view="3d" aria-pressed="false">실사 3D</button>
         </div>
+        <details class="more">
+          <summary>지도 설정</summary>
+          <div class="morebody">
         <label class="lightopt"><input type="checkbox" id="bmlight" /> 배경지도를 밝게</label>
         <label class="opacity">색 진하기 <span id="oplabel">90%</span>
           <input type="range" id="op" min="0" max="100" step="5" value="90" aria-describedby="oplabel" />
@@ -115,6 +118,11 @@ export function renderMap(root: HTMLElement, data: Data, params: URLSearchParams
           <label><input type="checkbox" id="tsen" /> 센서 위치</label>
           <label><input type="checkbox" id="tbld" /> 층간소음 위험(추정)</label>
         </div>
+          </div>
+        </details>
+      </div>
+      <p class="maphint" id="maphint"><span>지도를 누르면 <b>그 자리의 소음</b>과 큰길까지의 단면을 볼 수 있어요</span><button type="button" aria-label="안내 닫기">×</button></p>
+      <div class="maplegend">
         <div class="legend" aria-label="색 범례">
           <div id="nlegend"><p>동네별 <span class="lwhen">밤</span> 소음 (dB) <span class="lyear"></span></p>
           <ul id="nlist"></ul>
@@ -124,7 +132,7 @@ export function renderMap(root: HTMLElement, data: Data, params: URLSearchParams
           <div class="ramp-ticks" id="dticks"></div>
           <div class="ramp-ends"><span>조용함</span><span>중간</span><span>시끄러움</span></div>
           <p class="hint" id="dshift" hidden></p>
-          <p class="hint">도로·철도·상가 밀집·건물 가림으로 계산한 값입니다. 센서 위치를 켜면 실제로 잰 자리를 볼 수 있습니다.</p></div>
+          </div>
           <div id="blegend" hidden><p>공동주택 중 '높음'(~2007년 사용승인) 단지 비율 <span class="est">추정</span></p>
           <ul>${BLD_COLORS.map((c, i) => `<li><span style="background:${c}"></span>${BLD_LABELS[i]}</li>`).join("")}
           <li><span style="background:${NODATA}"></span>단지 없음·연결 안 됨</li></ul></div>
@@ -304,6 +312,10 @@ export function renderMap(root: HTMLElement, data: Data, params: URLSearchParams
     if (want) loadYearData(want);
   });
   const stop = () => {};
+  // 첫 안내: 닫거나 지도를 한 번 누르면 사라진다
+  const maphint = root.querySelector<HTMLElement>("#maphint")!;
+  maphint.querySelector("button")!.addEventListener("click", () => (maphint.hidden = true));
+  map.on("click", () => (maphint.hidden = true));
   // 배경 지도 전환 + 색 진하기
   const viewButtons = [...root.querySelectorAll<HTMLButtonElement>(".basemap button")];
   // 상세 추정 지도 (켜면 동네 색칠 대신 10m 칸 추정값을 보여 준다. 동네를 누르는 동작은 그대로)

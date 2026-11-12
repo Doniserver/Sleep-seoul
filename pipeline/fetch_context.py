@@ -1,6 +1,6 @@
 """상세 추정 지도에 쓰는 서울 전역 자료 수집 (공식 API만).
 
-    python -m pipeline.fetch_context      # → data/derived/rail.parquet, stores_seoul.parquet
+    python -m pipeline.fetch_context      # → data/브이월드/rail.parquet, data/공공데이터포털/상가정보/stores_seoul.parquet
 
   - 철도시설: 브이월드 2D 데이터 API `LT_C_UPISUQ152`(도시계획시설 교통시설) 중 lcl_nam == "철도"
       속성(실제 응답 확인): dgm_nm(이름), lcl_nam(대분류), mls_nam(중분류: 일반철도·고속철도·도시철도·기타철도시설)
@@ -91,14 +91,14 @@ def main():
         raise SystemExit(".env에 VITE_VWORLD_KEY, DATA_GO_KR_KEY가 필요합니다")
     domain = (os.environ.get("VWORLD_DOMAIN") or "localhost:5173").strip()
     sess = requests.Session()
-    C.DERIVED.mkdir(parents=True, exist_ok=True)
+    C.VWORLD.mkdir(parents=True, exist_ok=True); C.SBIZ.mkdir(parents=True, exist_ok=True)
     rail = fetch_rail(sess, vk, domain)
-    rail.to_parquet(C.DERIVED / "rail.parquet", index=False)
+    rail.to_parquet(C.VWORLD / "rail.parquet", index=False)
     print(f"철도시설 {len(rail):,}곳 저장")
     dongs = json.loads((C.WEB_DATA / "dongs_stats.json").read_text(encoding="utf-8"))
     gu_codes = sorted({code[:5] for code in dongs})          # 행정동 코드 앞 5자리 = 시군구 코드
     stores = fetch_stores(sess, dk, gu_codes)
-    stores.to_parquet(C.DERIVED / "stores_seoul.parquet", index=False)
+    stores.to_parquet(C.SBIZ / "stores_seoul.parquet", index=False)
     print(f"업소 {len(stores):,}곳 저장")
 
 

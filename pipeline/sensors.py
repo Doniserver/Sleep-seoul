@@ -39,7 +39,7 @@ def write_web_boundaries(feats, tolerance=0.00012) -> dict:
 
 
 def load_locations() -> pd.DataFrame:
-    f = next(C.RAW.glob(C.LOCATION_GLOB))
+    f = next(iter([*C.SDOT_RAW.glob(C.LOCATION_GLOB), *C.LOCATIONS.glob(C.LOCATION_GLOB)]))   # 원본이 없으면 저장소에 넣어 둔 사본
     loc = pd.read_excel(f, header=0)
     # 머리글: No, 모델 시리얼(*), 주소, 좌표 구분코드, 위도, 경도, 변경 전 시리얼, 변경 전 시리얼(데이터 상 표기)
     loc.columns = ["no", "sn", "addr", "crs", "lat", "lon", "old_sn", "old_sn_data"]

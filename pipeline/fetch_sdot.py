@@ -1,7 +1,7 @@
-"""S-DoT 수집: 주간 CSV(백필) + Seoul Open API IotVdata017(증분) → data/hourly/YYYY-MM-DD.parquet
+"""S-DoT 수집: 주간 CSV(백필) + Seoul Open API IotVdata017(증분) → data/서울열린데이터광장/매일수집/YYYY-MM-DD.parquet
 
 사용:
-  python -m pipeline.fetch_sdot csv            # data/raw/S-DoT_NATURE_*.csv 전부 변환
+  python -m pipeline.fetch_sdot csv            # data/서울열린데이터광장/원본/S-DoT_NATURE_*.csv 전부 변환
   python -m pipeline.fetch_sdot api --days 3   # 최근 N일 중 없는 날짜를 API로 수집 (어제까지)
   python -m pipeline.fetch_sdot api --since 2026-11-02
 
@@ -60,7 +60,7 @@ def _write_days(df: pd.DataFrame, overwrite: bool = False) -> list[str]:
 
 
 def ingest_csv() -> list[str]:
-    files = sorted(C.RAW.glob(C.CSV_GLOB))
+    files = sorted(C.SDOT_RAW.glob(C.CSV_GLOB))
     days: list[str] = []
     for f in files:
         # 데이터 행의 칸 수(64)가 머리글(58)보다 많음 → index_col=False 필수. 인코딩 cp949.

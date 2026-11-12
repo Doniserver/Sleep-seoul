@@ -1,4 +1,4 @@
-"""전체 빌드: data/hourly → web/public/data/*.json
+"""전체 빌드: data/서울열린데이터광장/매일수집 → web/public/data/*.json
 
   python -m pipeline.build            # 최근 365일(있는 만큼)
 """

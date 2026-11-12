@@ -1,6 +1,6 @@
 """도로 중심선 수집 (브이월드 2D 데이터 API, 국토지리정보원 연속수치지도 도로중심선).
 
-    python -m pipeline.fetch_roads            # 서울 전체, 2차로 이상 → data/derived/roads.parquet
+    python -m pipeline.fetch_roads            # 서울 전체, 2차로 이상 → data/브이월드/roads.parquet
 
 확인한 것 (실제 응답, 2026-11):
   - 주소: https://api.vworld.kr/req/data?service=data&request=GetFeature&data=LT_L_N3A0020000
@@ -26,7 +26,7 @@ LAYER = "LT_L_N3A0020000"
 SEOUL = (126.76, 37.41, 127.19, 37.72)   # minLon, minLat, maxLon, maxLat
 STEP = 0.04                               # 한 칸 크기(도). 한 칸씩 나눠서 요청
 MIN_LANES = 2
-OUT = C.DERIVED / "roads.parquet"
+OUT = C.VWORLD / "roads.parquet"
 
 
 def tiles(bbox=SEOUL, step=STEP):

@@ -223,3 +223,143 @@ body[data-route="map"] .foot { padding-top: 8px; }
 .legend li span.nodata { background: none; border: 1px dashed var(--ink-2); }
 .legend .ramp-ends { display: flex; justify-content: space-between; color: var(--ink-2); font-size: 11px; }
 .legend .ramp-ends span { width: auto; height: auto; background: none; }
+
+
+/* ───────── 2026-11 디자인 정리: 색·글자·여백의 기준을 한곳에서 다시 잡는다 ───────── */
+:root {
+  --bg: #0b0f18;
+  --panel: #111723;
+  --panel-2: #19202f;
+  --panel-3: #222b3d;
+  --line: #273247;
+  --ink: #f1f4f9;
+  --ink-2: #aab4c6;     /* panel 대비 8:1 */
+  --accent: #f5b041;
+  --radius: 14px;
+  --shadow: 0 8px 28px rgba(0, 0, 0, 0.45), 0 0 0 1px rgba(255, 255, 255, 0.04);
+  font-family: "Pretendard Variable", "Pretendard", "Apple SD Gothic Neo", "Noto Sans KR", system-ui, sans-serif;
+  font-feature-settings: "tnum" 1, "ss06" 1;
+  -webkit-font-smoothing: antialiased;
+}
+body { font-size: 15px; letter-spacing: -0.005em; }
+b, strong { font-weight: 650; }
+
+/* 머리말 */
+.top { padding: 10px 24px; gap: 6px 24px; background: var(--bg); }
+.brand { display: flex; align-items: baseline; gap: 12px; flex-wrap: wrap; }
+.brand h1 { font-size: 19px; font-weight: 750; letter-spacing: -0.03em; }
+.tag { font-size: 13px; }
+nav { gap: 2px; background: var(--panel-2); padding: 3px; border-radius: 999px; }
+nav a { padding: 6px 14px; border-radius: 999px; font-size: 14px; font-weight: 600; }
+nav a:hover { color: var(--ink); }
+nav a[aria-current] { background: var(--ink); color: #0b0f18; box-shadow: none; }
+.notice { padding: 6px 24px; font-size: 12.5px; background: var(--panel); }
+
+/* 지도 화면 */
+.mapgrid { height: calc(100vh - 96px); grid-template-columns: minmax(0, 1fr) 460px; }
+.ctrl { left: 14px; top: 14px; width: 292px; padding: 10px; gap: 8px; border-radius: var(--radius); border: 0; background: rgba(17, 23, 35, 0.88); backdrop-filter: blur(14px) saturate(1.2); -webkit-backdrop-filter: blur(14px) saturate(1.2); box-shadow: var(--shadow); }
+input[type="text"], input:not([type]), input[list], select { background: var(--panel-2); border-color: var(--line); border-radius: 10px; padding: 9px 11px; }
+input::placeholder { color: #7f8aa0; }
+.qrow button { border-radius: 10px; padding: 0 14px; }
+.trange { border-radius: 10px; border-color: transparent; background: var(--panel-2); padding: 3px; gap: 3px; }
+.trange button { border-radius: 8px; background: transparent; padding: 7px 6px; font-size: 12.5px; }
+.trange button + button { border-left: 0; }
+.trange button:hover { background: var(--panel-3); }
+.trange button[aria-pressed="true"] { background: var(--accent); }
+.ctrl .basemap { background: var(--panel-2); padding: 3px; border-radius: 10px; gap: 3px; flex-wrap: nowrap; }
+.ctrl .basemap button { border: 0; background: transparent; color: var(--ink-2); border-radius: 8px; font-size: 13px; padding: 7px 4px; font-weight: 600; }
+.ctrl .basemap button:hover { background: var(--panel-3); color: var(--ink); }
+.ctrl .basemap button[aria-pressed="true"] { background: var(--panel-3); color: var(--ink); box-shadow: inset 0 0 0 1px #3a4863; }
+.more { border-top: 1px solid var(--line); padding-top: 6px; }
+.more summary { cursor: pointer; color: var(--ink-2); font-size: 12.5px; padding: 3px 2px; list-style: none; display: flex; justify-content: space-between; align-items: center; border-radius: 6px; }
+.more summary::-webkit-details-marker { display: none; }
+.more summary::after { content: "펼치기 ▾"; font-size: 11.5px; }
+.more[open] summary::after { content: "접기 ▴"; }
+.more summary:hover { color: var(--ink); }
+.morebody { display: grid; gap: 9px; padding: 8px 2px 2px; }
+.lightopt { margin-top: 0; color: var(--ink); }
+.ctrl .toggles { display: grid; gap: 6px; }
+input[type="checkbox"] { accent-color: var(--accent); width: 15px; height: 15px; margin: 0; }
+
+/* 범례: 지도 왼쪽 아래에 따로 */
+.maplegend { position: absolute; left: 14px; bottom: 26px; z-index: 3; width: 292px; max-width: calc(100% - 28px); padding: 10px 12px; border-radius: var(--radius); background: rgba(17, 23, 35, 0.88); backdrop-filter: blur(14px) saturate(1.2); -webkit-backdrop-filter: blur(14px) saturate(1.2); box-shadow: var(--shadow); font-size: 12.5px; }
+.legend p { margin: 0 0 6px; color: var(--ink); font-weight: 600; font-size: 12.5px; }
+.legend p.hint { font-weight: 400; color: var(--ink-2); font-size: 11.5px; line-height: 1.45; margin: 6px 0 0; }
+.legend ul { grid-template-columns: repeat(4, 1fr); gap: 4px 6px; margin: 0; }
+.legend li { gap: 5px; font-size: 11.5px; color: var(--ink-2); white-space: nowrap; }
+.legend li span { width: 12px; height: 12px; border-radius: 3px; }
+.legend .ramp { height: 10px; border-radius: 999px; }
+.legend .ramp-ticks { font-size: 11px; margin-top: 3px; color: var(--ink); }
+.legend .ramp-ends { font-size: 10.5px; }
+
+/* 첫 안내 */
+.maphint { position: absolute; z-index: 3; top: 14px; left: calc(50% + 150px); transform: translateX(-50%); margin: 0; display: flex; align-items: center; gap: 8px; padding: 7px 8px 7px 14px; border-radius: 999px; background: rgba(241, 244, 249, 0.96); color: #10151f; font-size: 13px; box-shadow: var(--shadow); white-space: nowrap; max-width: calc(100% - 340px); }
+.maphint span { overflow: hidden; text-overflow: ellipsis; }
+.maphint[hidden] { display: none; }
+.maphint button { border: 0; background: rgba(16, 21, 31, 0.08); color: #10151f; width: 22px; height: 22px; border-radius: 50%; line-height: 1; font-size: 15px; flex: none; }
+
+/* 오른쪽 패널 */
+.panel { padding: 22px 24px 32px; background: var(--panel); }
+.panel h2 { font-size: 22px; letter-spacing: -0.03em; font-weight: 750; }
+.panel h2 span { font-size: 22px; }
+.panel h3 { font-size: 14px; margin: 26px 0 8px; color: var(--ink); font-weight: 650; }
+.panel h3 small { color: var(--ink-2); font-weight: 400; }
+.panel section + section { border-top: 1px solid var(--line); margin-top: 22px; }
+.intro > p { color: var(--ink-2); line-height: 1.6; }
+.intro > p b { color: var(--ink); }
+.intro ol { list-style: none; padding: 0; margin: 6px 0; display: grid; gap: 2px; counter-reset: rank; }
+.intro li { counter-increment: rank; display: flex; align-items: baseline; gap: 8px; padding: 7px 10px; border-radius: 10px; background: var(--panel-2); font-variant-numeric: tabular-nums; }
+.intro li::before { content: counter(rank); color: var(--ink-2); font-size: 12px; width: 12px; }
+.intro li small { color: var(--ink-2); margin-left: auto; }
+.link { color: var(--ink); text-decoration: none; font-weight: 600; }
+.link:hover { text-decoration: underline; }
+.badge { border-color: transparent; background: rgba(245, 176, 65, 0.14); color: var(--accent); font-weight: 600; }
+.period { border: 0; background: none; padding: 0; color: var(--ink-2); font-size: 12.5px; }
+.big { gap: 36px; margin: 18px 0 8px; }
+.big .num { font-size: 48px; font-weight: 750; letter-spacing: -0.04em; }
+.chip { width: 6px; height: 40px; border-radius: 3px; margin-right: 10px; }
+.who { list-style: none; padding: 0; display: grid; gap: 4px; color: var(--ink-2); font-size: 13.5px; }
+.stats { gap: 10px; margin: 16px 0 10px; }
+.stats div { background: var(--panel-2); border-radius: 12px; padding: 12px 14px; }
+.stats dd { font-size: 22px; font-weight: 700; letter-spacing: -0.02em; margin-top: 2px; }
+.stats dd.s { margin-top: 4px; line-height: 1.4; }
+.ai { border: 0; border-radius: 12px; padding: 12px 14px; margin-top: 16px; background: var(--panel-2); }
+.ai h3 { margin: 0 0 4px; }
+.panel section.ai + section { border-top: 0; }
+.actions button { border-radius: 12px; border: 0; background: var(--ink); color: #0b0f18; padding: 12px; }
+.actions button:hover { background: #fff; }
+.placecard { border: 0; background: var(--panel-2); border-radius: var(--radius); padding: 16px 18px; margin-bottom: 22px; box-shadow: inset 0 0 0 1px rgba(245, 176, 65, 0.45); }
+.placecard h2 { font-size: 20px; }
+.pc-row { gap: 26px; margin: 12px 0 6px; }
+.pc-row b { font-size: 26px; letter-spacing: -0.02em; }
+.pc-near { list-style: none; padding: 0; display: grid; gap: 3px; color: var(--ink-2); }
+.pc-near b { color: var(--ink); }
+.pc-flags li { border: 0; background: rgba(245, 176, 65, 0.14); color: var(--accent); padding: 3px 10px; font-weight: 600; }
+.est { font-weight: 600; border-radius: 999px; padding: 0 7px; font-size: 10.5px; }
+.maplibregl-popup-content { border-radius: 10px; box-shadow: var(--shadow); padding: 8px 11px; }
+.maplibregl-ctrl-group { border-radius: 10px; overflow: hidden; }
+
+/* 비교·방법 */
+.compare, .method { max-width: 920px; padding: 32px 24px 56px; line-height: 1.65; }
+.compare h2, .method h2 { font-size: 26px; letter-spacing: -0.03em; }
+.method h3 { margin-top: 36px; font-size: 17px; }
+.method li { margin: 8px 0; color: #d5dbe6; }
+.ctable th, .ctable td { padding: 11px 12px; }
+.foot { padding: 12px 24px 20px; line-height: 1.6; }
+.foot a { color: var(--ink-2); }
+
+@media (max-width: 900px) {
+  .top { padding: 10px 16px; }
+  .notice, .foot { padding-left: 16px; padding-right: 16px; }
+  .mapgrid { height: auto; grid-template-columns: minmax(0, 1fr); }
+  .ctrl { position: static; width: auto; max-width: none; border-radius: 0; box-shadow: none; background: var(--panel); backdrop-filter: none; padding: 12px 16px; order: 2; }
+  .maplegend { position: static; width: auto; max-width: none; border-radius: 0; box-shadow: none; background: var(--panel); backdrop-filter: none; padding: 4px 16px 14px; order: 3; }
+  .maphint { left: 50%; top: 10px; max-width: calc(100% - 70px); font-size: 12px; white-space: normal; border-radius: 14px; }
+  .panel { padding: 18px 16px 28px; }
+  .legend ul { grid-template-columns: repeat(4, 1fr); }
+}
+@media (max-width: 480px) {
+  .legend ul { grid-template-columns: repeat(3, 1fr); }
+  .brand { gap: 2px 10px; }
+  .big .num { font-size: 40px; }
+}

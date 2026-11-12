@@ -7,7 +7,7 @@
      (반경 안의 도로량 = 차로 수 × 길이, 철도시설 넓이, 음식점·술집·노래방·숙박 수)
   2) 센서 자리의 조건과 센서가 잰 밤 소음(기종 보정 후)으로 모델을 만든다 (pipeline/gbm.py)
   3) 교차검증으로 오차를 재고, 모든 칸에 적용해 한 장의 그림(PNG, 0.25dB 단위)으로 저장한다
-입력: data/derived/roads.parquet(fetch_roads), rail.parquet, stores_seoul.parquet, 연도별 센서 값
+입력: data/브이월드/roads.parquet(fetch_roads), rail.parquet, stores_seoul.parquet, 연도별 센서 값
 출력: web/public/data/noisemap/night_{연도}.png, noisemap.json
   4) 낮(06~22시) 지도: 센서의 낮 시간 평균 소음을 목표로 같은 방법으로 한 장 더 만든다 (day_{연도}.png)
 """
@@ -278,7 +278,7 @@ MODEL_KW = dict(nq=24, monotone=True)
 
 
 def base_rasters(g: Grid) -> dict[str, np.ndarray]:
-    roads = pd.read_parquet(C.DERIVED / "roads.parquet")
+    roads = pd.read_parquet(C.VWORLD / "roads.parquet")
     lines, lanes = [], []
     for ln, js in zip(roads["lanes"], roads["lines"]):
         for line in json.loads(js):
@@ -286,17 +286,17 @@ def base_rasters(g: Grid) -> dict[str, np.ndarray]:
     lanes = np.array(lanes)
     pick = lambda m: rasterize_lines([l for l, k in zip(lines, m) if k], lanes[m], g)
     out = {"w2": pick(lanes >= 2), "w4": pick(lanes >= 4), "w6": pick(lanes >= 6)}
-    rail = pd.read_parquet(C.DERIVED / "rail.parquet")
+    rail = pd.read_parquet(C.VWORLD / "rail.parquet")
     geoms = shapely.from_wkt(rail["wkt"].to_numpy())
     gen = rail["kind"].isin(["일반철도", "고속철도"]).to_numpy()
     out["rail"] = rasterize_polygons(geoms, g)
     out["railg"] = rasterize_polygons(geoms[gen], g)
-    st = pd.read_parquet(C.DERIVED / "stores_seoul.parquet")
+    st = pd.read_parquet(C.SBIZ / "stores_seoul.parquet")
     m = st["mcls"].astype(str); s = st["scls"].astype(str)
     sel = lambda mask: rasterize_points(st.loc[mask, "lon"], st.loc[mask, "lat"], g)
     out["food"] = sel(m.str.startswith("I2")); out["bar"] = sel(m == "I211")
     out["kar"] = sel(s.str.contains("노래")); out["lodg"] = sel(m.str.startswith("I1"))
-    files = sorted((C.DERIVED / "bldg").glob("*.parquet"))
+    files = sorted((C.VWORLD / "bldg").glob("*.parquet"))
     if files:   # 건물 자료가 있으면 칸마다 건물이 덮은 비율도 만든다 (python -m pipeline.fetch_bldg)
         b = pd.concat([pd.read_parquet(f, columns=["id", "wkb"]) for f in files]).drop_duplicates("id")
         out["cover"] = rasterize_cover(shapely.from_wkb(b["wkb"].to_numpy()), g, sub=2)
@@ -335,7 +335,7 @@ def sensor_hours(year: int) -> pd.DataFrame:
     """센서별 시각(0~23시)별 소음: 그 해 정제된 시간 자료의 에너지 평균 (기종 보정 후). 동네 값의 '시간대 선택'과 같은 기준."""
     from . import clean as CL
     from . import metrics as M
-    df = CL.prepare(pd.read_parquet(C.DERIVED / "years" / f"{year}.parquet"))
+    df = CL.prepare(pd.read_parquet(C.YEARS_DERIVED / f"{year}.parquet"))
     df = df[df["nd"].isna() | (df["nd"].dt.year == year)]
     df = df[(df["hs"].dt.year == year) | df["nd"].notna()]
     _, full, _, _ = CL.clean(df)
@@ -348,7 +348,7 @@ DAY_HOURS = list(range(6, 22))      # 낮 = 06~22시 (밤 22~06시의 나머지)
 
 def build_day(year: int, s: pd.DataFrame, X: np.ndarray, feats_def: list, cache_dir, seoul: np.ndarray, g: Grid) -> dict | None:
     """낮(06~22시) 추정 지도 한 장. 목표값 = 센서의 낮 시각별 평균을 에너지 평균한 값."""
-    src = C.DERIVED / "years" / f"{year}.parquet"
+    src = C.YEARS_DERIVED / f"{year}.parquet"
     if not src.exists():
         print(f"[noisemap] 낮 지도 건너뜀: {src.name} 없음 (python -m pipeline.yearly 먼저)")
         return None
@@ -399,7 +399,7 @@ def main():
     y = s["l_night"].to_numpy(dtype="float64")
 
     feats_def = all_features(base)
-    cache_dir = C.DERIVED / "noisemap_tmp"
+    cache_dir = C.SCRATCH / "noisemap_tmp"
     cache_dir.mkdir(parents=True, exist_ok=True)
     X = np.zeros((len(s), len(feats_def)))
     for j, (name, _, how) in enumerate(feats_def):

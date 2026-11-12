@@ -1,8 +1,13 @@
 # 비밀값
 .env
 
-# 원본 데이터 (커밋 금지)
-data/raw/
+# 내려받은 원본·가공 중간물 (용량이 크고 배포 조건이 있어 커밋하지 않음). 폴더 설명은 data/README.md
+data/서울열린데이터광장/원본/
+data/서울열린데이터광장/연도별정리/
+data/브이월드/
+data/공공데이터포털/
+data/공개저장소_행정동경계/
+data/분석임시/
 
 # Python
 __pycache__/
@@ -17,5 +22,3 @@ web/dist/
 # OS
 .DS_Store
 
-# 중간 산출물
-data/derived/

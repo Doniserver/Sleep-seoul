@@ -38,10 +38,9 @@ jobs:
         run: python -m pipeline.fetch_sdot api --days 3
       - name: 집계 (경계 파일 받기 → 빌드)
         run: |
-          mkdir -p data/raw/boundary
-          curl -sL -o data/raw/boundary/HangJeongDong_ver20261001.geojson \
+          mkdir -p data/공개저장소_행정동경계
+          curl -sL -o data/공개저장소_행정동경계/HangJeongDong_ver20261001.geojson \
             https://raw.githubusercontent.com/vuski/admdongkor/master/ver20261001/HangJeongDong_ver20261001.geojson
-          cp data/locations/*.xlsx data/raw/
           python -m pipeline.build
           python -m pipeline.verify
           python -m pipeline.yearly   # 끝난 해만: 해가 바뀌면 매일 모은 자료로 지난해를 자동 계산(더 완전한 기존 결과는 유지)
@@ -49,7 +48,7 @@ jobs:
         run: |
           git config user.name "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
-          git add data/hourly web/public/data
+          git add data/서울열린데이터광장/매일수집 web/public/data
           git diff --cached --quiet || git commit -m "data: $(date +%F) 자동 갱신"
           git push
 

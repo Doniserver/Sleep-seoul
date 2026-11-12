@@ -1,13 +1,13 @@
-"""연도별 소음 정리: S-DoT 연도 zip(2020~2025)·주간 CSV·data/hourly → 연도별 행정동 지표
+"""연도별 소음 정리: S-DoT 연도 zip(2020~2025)·주간 CSV·data/서울열린데이터광장/매일수집 → 연도별 행정동 지표
 
-  python -m pipeline.yearly                 # data/raw 에 있는 모든 연도 처리
+  python -m pipeline.yearly                 # data/서울열린데이터광장/원본 에 있는 모든 연도 처리
   python -m pipeline.yearly --year 2023     # 한 해만
 
 입력(있는 것만 사용):
-  data/raw/S-DoT_NATURE_{연도}년(...).zip    연도 묶음 (안의 CSV를 모두 읽음)
-  data/raw/S-DoT_NATURE_{연도}.MM.DD-MM.DD.csv  주간 CSV
-  data/hourly/{연도}-*.parquet               이미 정리된 시간별 자료(최근 연도)
-중간 산출물(커밋 안 함): data/derived/years/{연도}.parquet
+  data/서울열린데이터광장/원본/S-DoT_NATURE_{연도}년(...).zip    연도 묶음 (안의 CSV를 모두 읽음)
+  data/서울열린데이터광장/원본/S-DoT_NATURE_{연도}.MM.DD-MM.DD.csv  주간 CSV
+  data/서울열린데이터광장/매일수집/{연도}-*.parquet               이미 정리된 시간별 자료(최근 연도)
+중간 산출물(커밋 안 함): data/서울열린데이터광장/연도별정리/{연도}.parquet
 출력(커밋):
   web/public/data/years/index.json         연도 목록, 기간, 부분 연도 여부, 서울 중앙값
   web/public/data/years/{연도}.json        행정동별 연간 지표 (지도·리포트용)
@@ -35,7 +35,7 @@ from pipeline import clean as CL
 from pipeline import config as C
 from pipeline import sensors as S
 
-YEARS_RAW = C.DERIVED / "years"
+YEARS_RAW = C.YEARS_DERIVED
 OUT = C.WEB_DATA / "years"
 FIRST_YEAR = 2020
 
@@ -157,13 +157,13 @@ def attach_sensor_attrs(df: pd.DataFrame, ref: pd.DataFrame) -> pd.DataFrame:
 
 
 def raw_sources(year: int) -> list[Path]:
-    srcs = sorted(C.RAW.glob(f"S-DoT_NATURE_{year}년*.zip"))
-    srcs += sorted(C.RAW.glob(f"S-DoT_NATURE_{year}.*.csv"))
+    srcs = sorted(C.SDOT_RAW.glob(f"S-DoT_NATURE_{year}년*.zip"))
+    srcs += sorted(C.SDOT_RAW.glob(f"S-DoT_NATURE_{year}.*.csv"))
     return srcs
 
 
 def collect_year(year: int) -> pd.DataFrame | None:
-    """한 해의 시간별 원자료를 모아 data/derived/years/{연도}.parquet 로 저장 (밤 날짜가 그 해인 것 + 앞뒤 경계 포함)."""
+    """한 해의 시간별 원자료를 모아 data/서울열린데이터광장/연도별정리/{연도}.parquet 로 저장 (밤 날짜가 그 해인 것 + 앞뒤 경계 포함)."""
     parts = []
     for src in raw_sources(year):
         if src.suffix == ".zip":
@@ -241,7 +241,7 @@ def summarize_year(year: int, df: pd.DataFrame, feats) -> dict:
         "patterns": [{k: p[k] for k in ("name", "desc", "n", "level_db")} for p in patterns],
         "excluded_nights": sum(1 for x in log if x["type"] == "night"),
         "excluded_sensors": sum(1 for x in log if x["type"] == "sensor"),
-        "sources": [p.name for p in raw_sources(year)] + (["data/hourly"] if list(C.HOURLY.glob(f"{year}-*.parquet")) else []),
+        "sources": [p.name for p in raw_sources(year)] + (["data/서울열린데이터광장/매일수집"] if list(C.HOURLY.glob(f"{year}-*.parquet")) else []),
     }
     return {"info": info, "dongs": slim, "calendar": calendar, "sensors": pts}
 
@@ -275,7 +275,7 @@ def _dump(path: Path, obj):
 
 def available_years() -> list[int]:
     ys = set()
-    for p in C.RAW.glob("S-DoT_NATURE_*"):
+    for p in C.SDOT_RAW.glob("S-DoT_NATURE_*"):
         m = re.match(r"S-DoT_NATURE_(\d{4})", p.name)
         if m:
             ys.add(int(m.group(1)))

@@ -31,7 +31,7 @@
 
 ```
 pipeline/          수집·정제·집계·분류 (Python)
-  fetch_sdot.py      CSV 백필 + API 증분 → data/hourly/YYYY-MM-DD.parquet
+  fetch_sdot.py      CSV 백필 + API 증분 → data/서울열린데이터광장/매일수집/YYYY-MM-DD.parquet
   fetch_buildings.py 공동주택 → web/public/data/buildings.json
   clean.py           결측·고장·이상치 밤 제거 (기록 남김)
   aggregate.py       센서 → 행정동 (중앙값, 보간 없음)
@@ -39,9 +39,8 @@ pipeline/          수집·정제·집계·분류 (Python)
   build.py           전체 빌드 → web/public/data/*.json
   verify.py          화면 숫자를 원본에서 다시 계산해 비교
   tests/             단위 테스트 (pytest)
-data/hourly/       정제된 시간별 소음·조도 (일 단위 parquet, 커밋)
-data/locations/    센서 설치 위치 (CI용)
-data/raw/          원본 (커밋 안 함)
+data/               자료 (출처 이름별 폴더: 서울열린데이터광장, 브이월드, 공공데이터포털, 공개저장소_행정동경계)
+data/README.md     자료마다 출처·쓰임·만드는 명령
 web/               Vite + TypeScript + MapLibre + D3
 docs/              data-check.md(Phase 0), methodology.md(산식)
 ```
@@ -52,14 +51,14 @@ docs/              data-check.md(Phase 0), methodology.md(산식)
 python3 -m venv .venv && .venv/bin/pip install -r requirements.txt
 cp .env.example .env    # 키 입력
 .venv/bin/python -m pytest -q pipeline/tests
-.venv/bin/python -m pipeline.fetch_sdot csv          # data/raw의 주간 CSV 변환
+.venv/bin/python -m pipeline.fetch_sdot csv          # data/서울열린데이터광장/원본의 주간 CSV 변환
 .venv/bin/python -m pipeline.fetch_sdot api --days 3 # 최근 3일 API 수집
 .venv/bin/python -m pipeline.fetch_buildings         # (단지 목록 API 승인 후)
 .venv/bin/python -m pipeline.build && .venv/bin/python -m pipeline.verify
 npm run setup && npm run dev   # 맨 위 폴더에서 실행 (web/ 으로 넘겨줌)
 ```
 
-`data/raw/`에 필요한 파일: S-DoT 주간 CSV, `설치 위치정보.xlsx`, `boundary/HangJeongDong_ver20261001.geojson`.
+필요한 원본: `data/서울열린데이터광장/원본/`에 S-DoT 연도 zip(또는 주간 CSV)과 `설치 위치정보.xlsx`, `data/공개저장소_행정동경계/`에 `HangJeongDong_ver20261001.geojson`. 자료별 출처는 `data/README.md`.
 
 ## 자동 갱신·배포 (GitHub Actions)
 
