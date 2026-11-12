@@ -363,3 +363,10 @@ input[type="checkbox"] { accent-color: var(--accent); width: 15px; height: 15px;
   .brand { gap: 2px 10px; }
   .big .num { font-size: 40px; }
 }
+
+/* 실사 3D로 넘어갈 때: 새 화면으로 바뀌지 않고 2D 위에 서서히 겹친다 */
+.v3d { opacity: 0; pointer-events: none; transition: opacity 0.7s ease; }
+.v3d.on { opacity: 1; pointer-events: auto; }
+.v3d-loading { position: absolute; z-index: 4; left: 50%; bottom: 34px; transform: translateX(-50%); margin: 0; padding: 7px 14px; border-radius: 999px; background: rgba(17, 23, 35, 0.9); color: var(--ink); font-size: 13px; box-shadow: var(--shadow); }
+.v3d-loading[hidden] { display: none; }
+@media (prefers-reduced-motion: reduce) { .v3d { transition: none; } }

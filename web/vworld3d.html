@@ -35,7 +35,8 @@
           return new vw.CameraPosition(new vw.CoordZ(lon, lat - back / 111320, h), new vw.Direction(0, -TILT, 0));
         }
         var state = { lon: parseFloat(q.get("lon")) || 126.978, lat: parseFloat(q.get("lat")) || 37.5665,
-                      height: parseFloat(q.get("height")) || 650, code: q.get("code") || "", color: q.get("color") || "#ffffff" };
+                      height: parseFloat(q.get("height")) || 650, code: q.get("code") || "", color: q.get("color") || "#ffffff",
+                      extent: parseFloat(q.get("extent")) || 0 };
         var map = new vw.Map();
         map.setOption({ mapId: "map", initPosition: camera(state.lon, state.lat, state.height), logo: true, navigation: true });
         map.start();
@@ -99,11 +100,26 @@
           } catch (e) { /* 위치를 못 구하면 알리지 않는다 */ }
         }
 
+        // 2D 지도에서 넘어올 때: 먼저 2D와 똑같이 위에서 똑바로 내려다보는 모습으로 맞추고(부모 창이 이때 화면을 서서히 겹친다),
+        // 그다음 비스듬한 3D 시점으로 천천히 기울인다. extent = 2D 화면 세로에 담긴 땅의 길이(m)
+        function enter() {
+          if (!ready || typeof Cesium === "undefined") return;
+          var cam = ws3d.viewer.camera;
+          var fovy = (cam.frustum && cam.frustum.fovy) || Math.PI / 3;
+          var h = state.extent > 0 ? state.extent / (2 * Math.tan(fovy / 2)) : state.height * 1.6;
+          cam.cancelFlight && cam.cancelFlight();
+          cam.setView({ destination: Cesium.Cartesian3.fromDegrees(state.lon, state.lat, h),
+                        orientation: { heading: 0, pitch: -Math.PI / 2, roll: 0 } });
+          kick(10);
+          setTimeout(function () { parent.postMessage({ type: "jamjal-3d-top" }, location.origin); }, 450);   // 위에서 본 모습이 그려질 시간
+          setTimeout(function () { go(2.2); }, 1350);                                                            // 겹치기가 끝난 뒤 기울인다
+        }
+
         vw.ws3dInitCallBack = function () {
           ready = true;
           msg.hidden = true;
-          // 브이월드가 처음 위치로 날아가는 동작이 끝난 뒤에 정확히 맞춘다 (바로 부르면 처음 이동이 끊겨 먼 우주에서 멈춤)
-          setTimeout(function () { go(0.8); }, 1500);
+          // 브이월드가 처음 위치로 날아가는 동작이 끝난 뒤에 맞춘다 (바로 부르면 처음 이동이 끊겨 먼 우주에서 멈춤)
+          setTimeout(enter, 1500);
           outline();
           try { ws3d.viewer.camera.moveEnd.addEventListener(report); } catch (e) { /* 이벤트가 없으면 건너뜀 */ }
         };
@@ -113,8 +129,8 @@
           var d = e.data;
           state.code = d.code || ""; state.color = d.color || "#ffffff";
           if (d.move !== false && isFinite(d.lon) && isFinite(d.lat)) {
-            state.lon = d.lon; state.lat = d.lat; state.height = d.height || state.height;
-            go(0.8);
+            state.lon = d.lon; state.lat = d.lat; state.height = d.height || state.height; state.extent = d.extent || 0;
+            if (d.enter) enter(); else go(0.8);
           }
           outline();
           kick(d.move !== false ? 10 : 3);

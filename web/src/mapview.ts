@@ -83,6 +83,7 @@ export function renderMap(root: HTMLElement, data: Data, params: URLSearchParams
         <p class="v3d-chip" id="v3d-title" aria-live="polite"></p>
         <p class="v3d-note">실제 건물 모습은 브이월드(국토교통부) 3D 지도입니다. 선은 고른 동의 경계이고, 소음 값은 건물마다 잰 것이 아니라 동 대표값입니다.</p>
       </div>
+      <p class="v3d-loading" id="v3d-loading" role="status" hidden>실사 3D로 넘어가는 중…</p>
       <div id="map" role="application" aria-label="행정동별 밤 소음 지도. 아래 검색창으로도 동네를 고를 수 있습니다."></div>
       <div class="ctrl">
         <form class="search" id="qform" role="search">
@@ -417,35 +418,65 @@ export function renderMap(root: HTMLElement, data: Data, params: URLSearchParams
   // 같은 지도 자리에 3D를 겹쳐 보여 준다. 한 번 불러온 3D는 켜 둔 채 위치·동만 바꿔서 바로 전환되게 한다
   let v3dLoaded = false;
   let v3dCenter: { lon: number; lat: number } | null = null;   // 3D에서 보고 있던 곳 (2D로 돌아올 때 맞춤)
-  const view3D = () => !v3d.hidden;
-  const sync3D = (move = true) => {
+  let is3D = false;
+  const view3D = () => is3D;
+  const v3dLoading = root.querySelector<HTMLElement>("#v3d-loading")!;
+  let v3dTimer = 0;
+  const reveal3D = () => { clearTimeout(v3dTimer); v3dLoading.hidden = true; if (is3D) v3d.classList.add("on"); };
+  const sync3D = (move = true, enter = false) => {
     const c = marker ? marker.getLngLat() : map.getCenter();
     const d = st.selected ? data.dongs[st.selected] : null;
     const v = d ? valueOf(srcOf(d.code)) : null;
     const showDong = !!d && map.getZoom() >= 12.5;          // 동을 보고 있을 때만 경계선을 함께 그린다
     const height = Math.max(300, Math.min(30000, 700 * 2 ** (15 - map.getZoom())));
-    const msg = { type: "jamjal-3d", move, lon: +c.lng.toFixed(6), lat: +c.lat.toFixed(6), height: Math.round(height),
+    // 2D 화면 세로에 담긴 땅의 길이(m): 3D가 같은 범위를 위에서 내려다보는 모습으로 시작하게 한다
+    const extent = map.getContainer().clientHeight * (78271.517 * Math.cos((c.lat * Math.PI) / 180)) / 2 ** map.getZoom();
+    const msg = { type: "jamjal-3d", move, enter, extent: Math.round(extent), lon: +c.lng.toFixed(6), lat: +c.lat.toFixed(6), height: Math.round(height),
       code: showDong ? d!.code : "", color: showDong && v != null ? colorFor(v) : "#ffffff" };
     root.querySelector("#v3d-title")!.textContent = d ? `${d.gu} ${d.name}${v != null ? ` · ${year}년 ${rangeLabel()} ${v.toFixed(1)}dB` : " · 데이터 없음"}` : "";
     if (!v3dLoaded) {
-      const q = new URLSearchParams(Object.entries(msg).filter(([k]) => k !== "type" && k !== "move").map(([k, x]) => [k, String(x)]));
+      const q = new URLSearchParams(Object.entries(msg).filter(([k]) => k !== "type" && k !== "move" && k !== "enter").map(([k, x]) => [k, String(x)]));
       v3dFrame.src = `${import.meta.env.BASE_URL}vworld3d.html?${q}`;
       v3dLoaded = true;
     } else v3dFrame.contentWindow?.postMessage(msg, location.origin);
   };
   const openReal3D = () => {
     if (!VW_KEY) { alert("브이월드 인증키(VITE_VWORLD_KEY)가 없어 실사 3D를 열 수 없습니다."); return; }
-    v3d.hidden = false;
+    if (is3D) return;
+    // 새 화면으로 바꾸지 않는다: 3D를 2D와 같은 '위에서 본 모습'으로 맞춘 뒤 서서히 겹치고, 그다음 시점을 기울인다
+    is3D = true;
+    root.querySelector<HTMLElement>("#maphint")!.hidden = true;
+    v3d.hidden = false;                 // 아직 투명 (.on 이 붙어야 보임)
+    v3dLoading.hidden = false;
     markView("3d");
-    sync3D();
+    v3dCenter = null;
+    sync3D(true, true);
+    clearTimeout(v3dTimer);
+    v3dTimer = window.setTimeout(reveal3D, 25000);  // 3D가 답을 못 해도 화면은 넘어가게 (처음 불러올 때는 10초 넘게 걸릴 수 있음)
   };
+  // 처음 불러오는 데 오래 걸리므로, 실사 2D를 고르거나 3D 버튼에 손이 가면 보이지 않게 미리 불러 둔다
+  const preload3D = () => {
+    if (v3dLoaded || !VW_KEY) return;
+    v3d.hidden = false;                 // 투명한 채로 자리만 잡는다 (눌리지도 않음)
+    sync3D(true, false);
+  };
+  const b3d = root.querySelector<HTMLButtonElement>('[data-view="3d"]')!;
+  b3d.addEventListener("pointerenter", preload3D);
+  b3d.addEventListener("focus", preload3D);
+  root.querySelector<HTMLButtonElement>('[data-view="sat"]')!.addEventListener("click", () => window.setTimeout(preload3D, 1200));
   const closeReal3D = () => {
-    if (v3d.hidden) return;
-    v3d.hidden = true;
+    if (!is3D) return;
+    is3D = false;
+    clearTimeout(v3dTimer);
+    v3dLoading.hidden = true;
     if (v3dCenter) map.jumpTo({ center: [v3dCenter.lon, v3dCenter.lat] });   // 3D에서 옮겨 간 곳을 2D에서도 이어서 봄
+    v3d.classList.remove("on");         // 서서히 사라진 뒤에 치운다
+    window.setTimeout(() => { if (!is3D) v3d.hidden = true; }, 500);
   };
   const on3DMessage = (e: MessageEvent) => {
-    if (e.origin !== location.origin || e.data?.type !== "jamjal-3d-pos") return;
+    if (e.origin !== location.origin) return;
+    if (e.data?.type === "jamjal-3d-top") { reveal3D(); return; }   // 3D가 위에서 본 모습으로 준비됨 → 겹치기 시작
+    if (e.data?.type !== "jamjal-3d-pos") return;
     if (Number.isFinite(e.data.lon) && Number.isFinite(e.data.lat)) v3dCenter = { lon: e.data.lon, lat: e.data.lat };
   };
   window.addEventListener("message", on3DMessage);
