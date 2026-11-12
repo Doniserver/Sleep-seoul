@@ -3,6 +3,8 @@
   <head>
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <!-- 브이월드 3D 스크립트가 http:// 주소로 부품을 더 불러온다. https 사이트에서는 그 요청이 막히므로 자동으로 https로 바꿔 받게 한다 -->
+    <meta http-equiv="Content-Security-Policy" content="upgrade-insecure-requests" />
     <title>실사 3D · 잠 잘 오는 동네</title>
     <style>
       html, body { margin: 0; height: 100%; background: #0b111c; color: #eef2f8; font-family: "Apple SD Gothic Neo", "Noto Sans KR", system-ui, sans-serif; }

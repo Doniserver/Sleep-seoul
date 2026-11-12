@@ -71,7 +71,8 @@ export async function renderReport(el: HTMLElement, data: Data, d: Dong, opts: {
   if (opts.onCompare) q("cmp").addEventListener("click", () => opts.onCompare!(d.code));
   const cal = opts.year ? await loadYearCalendar(opts.year) : await loadCalendar(data);
   calendar(q("cal"), cal[d.code], t.quiet_night);
-  const [idx, tr] = await Promise.all([loadYearsIndex(), loadTrends()]);
+  const idx = await loadYearsIndex();
+  const tr = idx.length > 1 ? await loadTrends() : {};   // 해가 하나뿐이면 추이 파일이 없으므로 받지 않는다
   if (idx.length > 1) q("trendbox").hidden = false;   // 해가 하나뿐이면 추이 그림은 보이지 않는다
   if (idx.length > 1)
     yearTrend(q("trend"), idx.map((y) => ({ year: y.year, v: tr[d.code]?.[String(y.year)] ?? null, partial: y.partial })),
