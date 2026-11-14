@@ -2,7 +2,7 @@ import * as maplibregl from "maplibre-gl";
 import type { Map as MlMap, StyleSpecification } from "maplibre-gl";
 import "maplibre-gl/dist/maplibre-gl.css";
 import workerUrl from "maplibre-gl/dist/maplibre-gl-worker.mjs?url";
-import { BREAKS, COLORS, NODATA, colorFor, step } from "./colors";
+import { BREAKS, COLORS, NODATA, SPOT_CUTS, colorFor, levelBadge, levelWord, step } from "./colors";
 import { type Data, type Dong, type YearInfo, fmt, loadBuildings, loadSensors, loadYear, loadYearsIndex, sortedDongs } from "./data";
 import { type Near, type Place, dongAt, nearestSensors, searchPlaces } from "./place";
 import { DETAIL_MID, DETAIL_SPAN, DETAIL_STOPS, type NoiseMap, type Profile, detailCss, loadNoiseMap } from "./detail";
@@ -14,30 +14,36 @@ function escHtml(s: string) {
 }
 
 /** 장소 카드: 그 위치 자체를 잰 값이 아님을 분명히 */
-function placeCard(p: Place, d: Dong, near: Near[], year: number, est: number | null = null, estLabel = "", prof: Profile | null = null, flags: string[] = []): HTMLElement {
+function placeCard(p: Place, d: Dong, near: Near[], year: number, est: number | null = null, estLabel = "", prof: Profile | null = null, flags: string[] = [], shift = 0): HTMLElement {
   const el = document.createElement("section");
   el.className = "placecard";
   el.setAttribute("aria-label", `${p.name} 주변 소음`);
+  const picked = p.name === "지도에서 고른 자리";
   const m = (x: number) => (x < 1000 ? `${Math.round(x / 10) * 10}m` : `${(x / 1000).toFixed(1)}km`);
+  // 큰 숫자 하나(이 자리 추정값, 없으면 동네 값) + 쉬운 말. 센서 목록과 계산 설명은 '자세히 보기'에 접어 둔다
+  const main = est !== null ? est : d.l_night;
+  const lv = est !== null ? levelWord(est, SPOT_CUTS, shift) : levelWord(d.l_night);
+  const road = !prof ? "" : prof.hereM === 0 ? "주변 250m 안에서 가장 시끄러운 쪽에 있습니다."
+    : `가장 시끄러운 길에서 <b>${prof.hereM}m</b> 들어온 자리입니다. 그 길보다 <b>${(prof.peakDb - prof.hereDb).toFixed(1)}dB</b> 조용합니다.`;
   el.innerHTML = `
-    <p class="pc-kicker">${p.name === "지도에서 고른 자리" ? "고른 자리" : "검색한 장소"}</p>
-    <h2>${escHtml(p.name === "지도에서 고른 자리" && p.addr ? p.addr : p.name)}</h2>
-    ${p.addr && p.name !== "지도에서 고른 자리" ? `<p class="hint">${escHtml(p.addr)}</p>` : ""}
-    <div class="pc-row">
-      ${est !== null ? `<div><span class="chip sm" style="background:${detailCss(est)}"></span><b>${fmt(est, 1, "dB")}</b>
-        <p class="lbl">이 자리 <span class="est">추정</span> · ${escHtml(estLabel)}</p></div>` : ""}
-      <div><span class="chip sm" style="background:${colorFor(d.l_night)}"></span><b>${fmt(d.l_night, 1, "dB")}</b>
-        <p class="lbl">${escHtml(d.gu)} ${escHtml(d.name)} 대표값 · ${year}년 밤</p></div>
-      ${near[0] ? `<div><span class="chip sm" style="background:${colorFor(near[0].s.l_night)}"></span><b>${fmt(near[0].s.l_night, 1, "dB")}</b>
-        <p class="lbl">가장 가까운 센서 · ${m(near[0].d)}</p></div>` : ""}
+    <p class="pc-kicker">${picked ? "고른 자리" : "검색한 장소"}</p>
+    <h2>${escHtml(picked && p.addr ? p.addr : p.name)}</h2>
+    ${p.addr && !picked ? `<p class="hint">${escHtml(p.addr)}</p>` : ""}
+    <div class="big">
+      <div><span class="chip" style="background:${est !== null ? detailCss(est) : colorFor(d.l_night)}" aria-hidden="true"></span><span class="num">${fmt(main, 1)}</span><span class="unit">dB</span> ${levelBadge(lv)}
+        <p class="lbl">${est !== null ? `이 자리의 ${escHtml(estLabel)} 바깥 소음 <span class="est">추정</span>` : `${escHtml(d.gu)} ${escHtml(d.name)}의 밤 바깥 소음 · ${year}년`}</p></div>
     </div>
-    ${near.length ? `<ol class="pc-near">${near.map((n) => `<li>센서 ${n.s.sn} · ${m(n.d)} · ${escHtml(n.s.rgn_ko)} · 밤 <b>${fmt(n.s.l_night, 1, "dB")}</b></li>`).join("")}</ol>`
-                  : `<p class="hint">2km 안에 쓸 수 있는 센서가 없습니다.</p>`}
-    ${flags.length ? `<ul class="pc-flags" aria-label="이 자리 주변의 소음 요인">${flags.map((f) => `<li>${escHtml(f)}</li>`).join("")}</ul>` : ""}
-    ${prof ? `<h3 class="pc-h">큰길에서 이 자리까지 <span class="est">추정</span></h3><div class="chart" data-x="xsec"></div>
-      <p class="hint">${prof.hereM === 0 ? "이 자리가 주변 250m 안에서 가장 시끄러운 쪽입니다." : `주변에서 가장 시끄러운 쪽(${prof.peakDb.toFixed(1)}dB)에서 <b>${prof.hereM}m</b> 들어온 자리입니다. 차이 <b>${(prof.peakDb - prof.hereDb).toFixed(1)}dB</b>.`}</p>` : ""}
-    ${est !== null ? `<p class="hint"><b>이 자리 추정</b>은 주변 도로(차로 수·거리), 철도시설, 음식점·술집 밀집, 도로와 사이에 선 건물로 계산한 값입니다. 층수와 창문 방향은 반영하지 못합니다.</p>` : ""}
-    <p class="hint">이 건물 자체를 잰 값이 아닙니다. 지도에 점선으로 이은 <b>가까운 길가 센서</b>의 밤 소음과, 이 장소가 속한 <b>동네 대표값</b>입니다. 센서와 건물 사이 거리·도로 방향에 따라 실제와 다를 수 있습니다.</p>`;
+    ${flags.length ? `<p class="pc-flagh">주변에 있는 것</p><ul class="pc-flags" aria-label="이 자리 주변의 소음 요인">${flags.map((f) => `<li>${escHtml(f)}</li>`).join("")}</ul>` : ""}
+    ${prof ? `<h3 class="pc-h">큰길에서 멀어지면 얼마나 조용해질까</h3><div class="chart" data-x="xsec"></div><p class="plain">${road}</p>` : ""}
+    <p class="hint">${est !== null ? "주변 도로·철도·가게·건물로 계산한 <b>추정값</b>입니다. 그 자리에서 직접 잰 값이 아니며, 층수와 창문 방향에 따라 실제와 다를 수 있습니다." : "이 건물을 직접 잰 값이 아니라, 이 장소가 속한 동네의 값입니다."}</p>
+    <details class="more-report">
+      <summary>자세히 보기</summary>
+      <p class="plain">${escHtml(d.gu)} ${escHtml(d.name)} 동네 값(센서 측정) <b>${fmt(d.l_night, 1, "dB")}</b> <span class="sub">· ${year}년 밤</span></p>
+      ${near.length ? `<p class="plain">가까운 길가 센서가 실제로 잰 밤 소음</p><ol class="pc-near">${near.map((n) => `<li>${m(n.d)} 거리 · ${escHtml(n.s.rgn_ko)} · <b>${fmt(n.s.l_night, 1, "dB")}</b></li>`).join("")}</ol>
+        <p class="hint">지도에 점선으로 이어진 번호가 이 센서들입니다.</p>` : `<p class="hint">2km 안에 쓸 수 있는 센서가 없습니다.</p>`}
+      <p class="hint"><a href="#/method">계산 방법과 한계</a></p>
+    </details>
+    <p class="pc-sep">이 자리가 속한 동네</p>`;
   if (prof) crossSection(el.querySelector<HTMLElement>('[data-x="xsec"]')!, prof, detailCss);
   return el;
 }
@@ -116,13 +122,13 @@ export function renderMap(root: HTMLElement, data: Data, params: URLSearchParams
         <p class="detnote" id="detnote" hidden></p>
         <div class="row toggles">
           <label><input type="checkbox" id="t3d" /> 3D 기둥(연출)</label>
-          <label><input type="checkbox" id="tsen" /> 센서 위치</label>
-          <label><input type="checkbox" id="tbld" /> 층간소음 위험(추정)</label>
+          <label><input type="checkbox" id="tsen" /> 센서 위치 보기</label>
+          <label ${data.meta.has_buildings ? "" : "hidden"}><input type="checkbox" id="tbld" /> 층간소음 위험(추정)</label>
         </div>
           </div>
         </details>
       </div>
-      <p class="maphint" id="maphint"><span>지도를 누르면 <b>그 자리의 소음</b>과 큰길까지의 단면을 볼 수 있어요</span><button type="button" aria-label="안내 닫기">×</button></p>
+      <p class="maphint" id="maphint"><span>지도를 누르면 <b>그 자리의 소음</b>이 나옵니다</span><button type="button" aria-label="안내 닫기">×</button></p>
       <div class="maplegend">
         <div class="legend" aria-label="색 범례">
           <div id="nlegend"><p>동네별 <span class="lwhen">밤</span> 소음 (dB) <span class="lyear"></span></p>
@@ -142,12 +148,20 @@ export function renderMap(root: HTMLElement, data: Data, params: URLSearchParams
     </section>
     <aside id="panel" class="panel" aria-live="polite">
       <div class="intro">
-        <h2>서울의 밤</h2>
-        <p id="intro-what">연도별 바깥 소음을 불러오는 중…</p>
-        <p>서울 행정동 중앙값 <b id="intro-med">—</b> · WHO 야간 목표는 집 밖 연평균 <b>40dB</b>입니다.</p>
-        <h3>가장 조용한 동 5곳</h3><ol id="top-q"></ol>
-        <h3>가장 시끄러운 동 5곳</h3><ol id="top-l"></ol>
-        <p class="hint">센서가 1개뿐인 동이 많습니다. 순위는 그 센서 위치의 영향을 받습니다.</p>
+        <h2>서울, 어디가 조용할까요?</h2>
+        <p id="intro-what"><b class="c-quiet">파란 곳</b>은 조용하고 <b class="c-loud">주황 곳</b>은 시끄럽습니다.</p>
+        <ol class="steps">
+          <li><span><b>지도를 눌러 보세요.</b> 그 자리의 소음이 나옵니다.</span></li>
+          <li><span><b>밤·낮</b>을 바꿔 보세요.</span></li>
+          <li><span><b>실사 2D·3D</b>로 실제 건물을 확인하세요.</span></li>
+        </ol>
+        <details class="more-report">
+          <summary>동네 순위 보기</summary>
+          <h3>가장 조용한 동네 5곳</h3><ol id="top-q" class="rank"></ol>
+          <h3>가장 시끄러운 동네 5곳</h3><ol id="top-l" class="rank"></ol>
+          <p class="hint">센서가 1곳뿐인 동네가 많아, 순위는 센서가 달린 자리의 영향을 받습니다.</p>
+        </details>
+        <p class="hint" id="intro-note"></p>
       </div>
     </aside>
   </div>`;
@@ -184,14 +198,15 @@ export function renderMap(root: HTMLElement, data: Data, params: URLSearchParams
     return 10 * Math.log10(hs.reduce((a, v) => a + 10 ** (v / 10), 0) / hs.length);   // 시각별 값의 에너지 평균
   };
 
+  let curMedian: number | null = null;   // 지금 시간대의 서울 동네 가운데 값 (리포트의 "서울 중간보다 …" 문장에 씀)
   const top = () => {
     const vs = Object.keys(data.dongs).map((c) => ({ d: srcOf(c) ?? data.dongs[c], v: valueOf(srcOf(c)) })).filter((x) => x.v != null) as { d: Dong; v: number }[];
     vs.sort((a, b) => a.v - b.v);
     const med = vs.length ? vs[Math.floor(vs.length / 2)].v : null;
-    const w = root.querySelector("#intro-what"), m = root.querySelector("#intro-med");
-    if (w && year) w.innerHTML = `<b>${year}년</b> 서울 행정동 ${vs.length}곳의 <b>${rangeLabel()}</b> 바깥 소음(시간 평균)입니다. 동을 누르거나 위에서 검색하면 동네 리포트가 열립니다.`;
-    if (m) m.textContent = fmt(med, 1, "dB");
-    const li = (x: { d: Dong; v: number }) => `<li><button type="button" class="link" data-code="${x.d.code}">${x.d.gu} ${x.d.name}</button> ${x.v.toFixed(1)}dB <small>센서 ${x.d.n_sensors}</small></li>`;
+    curMedian = med;
+    const note = root.querySelector("#intro-note");
+    if (note && year) note.textContent = `${year}년 한 해 동안 길가 센서가 잰 ${rangeLabel()} 바깥 소음입니다. 집 안 소음이 아닙니다.`;
+    const li = (x: { d: Dong; v: number }) => `<li><button type="button" class="link" data-code="${x.d.code}">${x.d.gu} ${x.d.name}</button> <small>${x.v.toFixed(1)}dB</small></li>`;
     const q = root.querySelector("#top-q"), l = root.querySelector("#top-l");
     if (q) q.innerHTML = vs.slice(0, 5).map(li).join("");
     if (l) l.innerHTML = vs.slice(-5).reverse().map(li).join("");
@@ -234,7 +249,7 @@ export function renderMap(root: HTMLElement, data: Data, params: URLSearchParams
     const yd = yearDongs?.[code];
     const shown = { ...d, ...(yd ?? { l_night: null, pattern: undefined }), report: null } as Dong;
     renderReport(panel, data, shown, { onCompare, year, periodLabel: periodLabel(),
-      range: isNight() ? undefined : { label: rangeLabel(), value: valueOf(yd ?? null) } });
+      range: isNight() ? undefined : { label: rangeLabel(), value: valueOf(yd ?? null) }, shift: dongShift, median: curMedian });
     if (view3D()) { v3dCenter = null; setTimeout(() => sync3D(fly), fly ? 50 : 0); }
     if (fly) {
       const f = data.geo.features.find((x) => (x.properties as any).code === code);
@@ -608,7 +623,7 @@ export function renderMap(root: HTMLElement, data: Data, params: URLSearchParams
     const on = detailOn();
     const flags = on ? await nmap!.flagsAt(p.lon, p.lat) : [];
     panel.querySelector(".placecard")?.remove();
-    panel.prepend(placeCard(p, yd, near, year, on ? nmap!.valueAt(p.lon, p.lat) : null, `${nmap?.meta.year ?? ""}년 ${detailWhen()}`, on ? nmap!.profile(p.lon, p.lat) : null, flags));
+    panel.prepend(placeCard(p, yd, near, year, on ? nmap!.valueAt(p.lon, p.lat) : null, detailWhen(), on ? nmap!.profile(p.lon, p.lat) : null, flags, on ? nmap!.shift() : 0));
   };
 
   // 공유한 주소로 들어오면 장소 다시 표시

@@ -1,5 +1,5 @@
 import { calendar, dbScale, heatmap, yearTrend } from "./charts";
-import { colorFor } from "./colors";
+import { colorFor, levelBadge, levelWord } from "./colors";
 import { type Data, type Dong, fmt, loadBuildings, loadCalendar, loadTrends, loadYearCalendar, loadYearsIndex } from "./data";
 
 function esc(s: string) {
@@ -18,7 +18,7 @@ function scoreWord(s: number | null | undefined) {
   return s >= 85 ? "아주 좋음" : s >= 65 ? "좋음" : s >= 40 ? "보통" : "나쁨";
 }
 
-export async function renderReport(el: HTMLElement, data: Data, d: Dong, opts: { onCompare?: (code: string) => void; year?: number | null; periodLabel?: string; range?: { label: string; value: number | null } } = {}) {
+export async function renderReport(el: HTMLElement, data: Data, d: Dong, opts: { onCompare?: (code: string) => void; year?: number | null; periodLabel?: string; range?: { label: string; value: number | null }; shift?: number; median?: number | null } = {}) {
   const t = data.meta.thresholds;
   const pat = data.patterns.find((p) => p.name === d.pattern);
   if (d.l_night == null) {
@@ -27,43 +27,47 @@ export async function renderReport(el: HTMLElement, data: Data, d: Dong, opts: {
     return;
   }
   const floorNote = d.l_night <= t.noise_floor + 0.5 ? `<p class="hint">센서가 잴 수 있는 가장 작은 값이 ${t.noise_floor}dB라서, 실제로는 이보다 더 조용할 수 있습니다.</p>` : "";
+  // 큰 숫자 하나: 지금 고른 시간대(밤 또는 낮)의 값. 나머지 분석은 '자세히 보기' 안에 접어 둔다
+  const main = opts.range ? opts.range.value : d.l_night;
+  const when = opts.range ? opts.range.label : "밤(22~06시)";
+  const lv = levelWord(main, undefined, opts.shift ?? 0);
+  const diff = main != null && opts.median != null ? main - opts.median : null;
+  const versus = diff == null ? "" : Math.abs(diff) < 1 ? "서울 동네들의 중간과 비슷합니다." : `서울 동네들의 중간보다 <b>${Math.abs(diff).toFixed(1)}dB ${diff > 0 ? "시끄럽습니다" : "조용합니다"}</b>.`;
   el.innerHTML = `
     <div class="rhead">
       <h2>${esc(d.gu)} <span>${esc(d.name)}</span></h2>
-      ${pat ? `<span class="badge" title="${esc(pat.desc)}">${esc(pat.name)}</span>` : ""}
     </div>
-    ${opts.periodLabel ? `<p class="period">기간: ${esc(opts.periodLabel)}</p>` : ""}
-    ${opts.range ? `<div class="rangebox"><span class="chip sm" style="background:${colorFor(opts.range.value)}"></span><b>${fmt(opts.range.value)}</b><small>dB</small>
-      <span>선택한 시간대 <b>${esc(opts.range.label)}</b> 평균 소음 (시각별 값의 에너지 평균)</span></div>` : ""}
     <div class="big">
-      <div><span class="chip" style="background:${colorFor(d.l_night)}" aria-hidden="true"></span><span class="num">${fmt(d.l_night)}</span><span class="unit">dB</span>
-        <p class="lbl">밤(22~06시) 평균 소음 · 에너지 평균</p></div>
-      <div class="score"><span class="num">${d.score ?? "—"}</span><span class="unit">/100</span>
-        <p class="lbl">수면 점수 ${scoreWord(d.score)} <a href="#/method" class="mini">산식</a></p></div>
+      <div><span class="chip" style="background:${colorFor(main == null ? null : main - (opts.shift ?? 0))}" aria-hidden="true"></span><span class="num">${fmt(main)}</span><span class="unit">dB</span> ${levelBadge(lv)}
+        <p class="lbl">${esc(when)} 동네 바깥 소음${opts.year ? ` · ${opts.year}년` : ""}</p></div>
     </div>
-    <div class="scale" data-x="scale"></div>
-    <ul class="who">
-      <li>WHO 야간 목표(집 밖 40dB): ${whoDiff(d.l_night, t.who_target)}</li>
-      <li>WHO 중간 목표(55dB): ${whoDiff(d.l_night, t.who_interim)}</li>
-    </ul>
-    ${floorNote}
-    <dl class="stats">
-      <div><dt>피크 횟수</dt><dd>${fmt(d.peaks_per_night, 1)}<small>회/밤</small></dd><dd class="s">시간 최대값이 ${t.peak}dB를 넘은 시간</dd></div>
-      <div><dt>밤 밝기</dt><dd>${fmt(d.lux, 1)}<small>lux</small></dd><dd class="s">참고선 ${t.lux_ref} lux ${d.lux != null ? (d.lux > t.lux_ref ? "· 넘음" : "· 이하") : ""}</dd></div>
-      <div><dt>주말 효과</dt><dd>${d.weekend_effect == null ? "—" : (d.weekend_effect > 0 ? "+" : "") + d.weekend_effect.toFixed(1)}<small>dB</small></dd><dd class="s">금·토 밤 − 일~목 밤</dd></div>
-      <div><dt>조용한 밤</dt><dd>${d.quiet_ratio == null ? "—" : Math.round(d.quiet_ratio * 100)}<small>%</small></dd><dd class="s">${t.quiet_night}dB 미만인 밤의 비율</dd></div>
-    </dl>
-    <p class="hint">대표 센서 ${d.n_sensors}개 (${esc(d.basis ?? "")})의 중앙값${d.n_sensors === 1 ? " · <b>센서가 1개뿐이라 그 센서 위치의 영향을 크게 받습니다</b>" : ""}.</p>
-    <section class="ai" aria-label="AI 한 줄 리포트">
-      <h3>AI 한 줄 리포트</h3>
-      ${d.report ? `<p>${esc(d.report.text)}</p><p class="hint">AI가 문장만 만들고 숫자는 데이터에서 가져와 자동 검증했습니다 (${esc(d.report.generated_at)}).</p>`
-                : `<p class="hint">준비 중입니다. 숫자는 데이터에서 가져오고, AI는 문장만 만들 예정입니다.</p>`}
-    </section>
-    <section><h3>요일 × 시간 소음</h3><div data-x="heat" class="chart"></div></section>
-    <section><h3>조용한 밤 달력 <small>(${t.quiet_night}dB 미만인 밤 = 초록${opts.year ? ` · ${opts.year}년` : ""})</small></h3><div data-x="cal" class="chart"></div></section>
-    <section data-x="trendbox" hidden><h3>연도별 밤 소음 <small>(주황 = 이 동, 점선 = 서울 행정동 중앙값, 빈 점 = 일부 기간)</small></h3><div data-x="trend" class="chart"></div></section>
-    <section data-x="bld"></section>
-    ${opts.onCompare ? `<div class="actions"><button type="button" data-x="cmp">이 동네를 비교에 담기</button></div>` : ""}
+    ${versus ? `<p class="plain">${versus}</p>` : ""}
+    <p class="plain">잠자기 좋은 정도 <b>${d.score ?? "—"}점</b> / 100점${scoreWord(d.score) ? ` · ${scoreWord(d.score)}` : ""} <span class="sub">(밤 소음 기준)</span></p>
+    <p class="hint">길가 센서 ${d.n_sensors}곳이 잰 값${d.n_sensors > 1 ? "의 가운데 값" : ""}입니다.${d.n_sensors === 1 ? " 센서가 1곳뿐이라 그 자리의 영향을 크게 받습니다." : ""} 같은 동네 안에서도 큰길가와 골목은 다릅니다. 지도를 눌러 자리별로 확인하세요.</p>
+    ${opts.onCompare ? `<div class="actions"><button type="button" data-x="cmp">다른 동네와 비교하기</button></div>` : ""}
+    <details class="more-report">
+      <summary>자세히 보기</summary>
+      ${pat ? `<p class="plain"><b>${esc(pat.name)}</b> · ${esc(pat.desc)}</p>` : ""}
+      <h3>세계보건기구(WHO) 기준과 견주기 <small>밤 소음</small></h3>
+      <div class="scale" data-x="scale"></div>
+      <ul class="who">
+        <li>WHO 야간 목표(집 밖 40dB): ${whoDiff(d.l_night, t.who_target)}</li>
+        <li>WHO 중간 목표(55dB): ${whoDiff(d.l_night, t.who_interim)}</li>
+      </ul>
+      ${floorNote}
+      <dl class="stats">
+        <div><dt>조용한 밤</dt><dd>${d.quiet_ratio == null ? "—" : Math.round(d.quiet_ratio * 100)}<small>%</small></dd><dd class="s">1년 중 ${t.quiet_night}dB보다 조용했던 밤</dd></div>
+        <div><dt>주말에 더 시끄러운 정도</dt><dd>${d.weekend_effect == null ? "—" : (d.weekend_effect > 0 ? "+" : "") + d.weekend_effect.toFixed(1)}<small>dB</small></dd><dd class="s">금·토 밤 − 일~목 밤</dd></div>
+        <div><dt>크게 시끄러웠던 시간</dt><dd>${fmt(d.peaks_per_night, 1)}<small>회/밤</small></dd><dd class="s">한 시간 중 최대값이 ${t.peak}dB를 넘음</dd></div>
+        <div><dt>밤 밝기</dt><dd>${fmt(d.lux, 1)}<small>lux</small></dd><dd class="s">참고선 ${t.lux_ref} lux ${d.lux != null ? (d.lux > t.lux_ref ? "· 넘음" : "· 이하") : ""}</dd></div>
+      </dl>
+      ${d.report ? `<section class="ai" aria-label="AI 한 줄 리포트"><h3>AI 한 줄 리포트</h3><p>${esc(d.report.text)}</p><p class="hint">AI가 문장만 만들고 숫자는 데이터에서 가져와 자동 검증했습니다 (${esc(d.report.generated_at)}).</p></section>` : ""}
+      <h3>요일과 시간에 따른 소음 <small>밝을수록 시끄러움</small></h3><div data-x="heat" class="chart"></div>
+      <h3>조용했던 밤 달력 <small>초록 = ${t.quiet_night}dB보다 조용했던 밤</small></h3><div data-x="cal" class="chart"></div>
+      <section data-x="trendbox" hidden><h3>연도별 밤 소음 <small>(주황 = 이 동, 점선 = 서울 행정동 중앙값, 빈 점 = 일부 기간)</small></h3><div data-x="trend" class="chart"></div></section>
+      <section data-x="bld"></section>
+      ${opts.periodLabel ? `<p class="hint">자료 기간: ${esc(opts.periodLabel)} · <a href="#/method">계산 방법과 한계</a></p>` : ""}
+    </details>
   `;
   const q = (k: string) => el.querySelector<HTMLElement>(`[data-x="${k}"]`)!;
   dbScale(q("scale"), d.l_night, data.meta.seoul.l_night_median, t);
@@ -82,10 +86,7 @@ export async function renderReport(el: HTMLElement, data: Data, d: Dong, opts: {
 
 export async function renderBuildingsSummary(el: HTMLElement, data: Data, code: string) {
   const b = await loadBuildings(data);
-  if (!b) {
-    el.innerHTML = `<h3>층간소음 위험(추정)</h3><p class="hint">건물 데이터 준비 중입니다.</p>`;
-    return;
-  }
+  if (!b) { el.innerHTML = ""; return; }   // 건물 자료가 아직 없으면 자리를 차지하지 않는다
   const s = b.by_dong[code];
   const order = ["높음", "보통", "낮음", "측정 기준 적용"];
   if (!s) { el.innerHTML = `<h3>층간소음 위험(추정)</h3><p class="hint">이 동에서 확인된 공동주택 단지가 없습니다.</p>`; return; }
