@@ -44,7 +44,7 @@ data/
 | `rail.parquet` | 철도시설 1,043곳 | `LT_C_UPISUQ152` | `python -m pipeline.fetch_context` |
 | `bldg/` | 건물 128만 동 (높이·모양) | `LT_C_BLDGINFO` | `python -m pipeline.fetch_bldg` |
 
-쓰임: 10m 상세 지도 계산과 주의 표시. 저장소에는 올리지 않습니다.
+쓰임: 정확도 조사 때 10m 칸 추정 지도를 만드는 데 썼습니다. **지금 사이트 화면에는 쓰이지 않습니다**(2026-11-15부터 동네별 지도만 표시). 저장소에는 올리지 않습니다.
 화면의 배경지도·항공사진·3D 지도·장소 검색도 브이월드이지만, 그것은 파일로 받지 않고 화면에서 바로 불러옵니다.
 
 ## 공공데이터포털 (data.go.kr)
@@ -54,7 +54,7 @@ data/
 | `상가정보/stores_seoul.parquet` | 음식점·술집·노래방·숙박 17만 곳 | 소상공인시장진흥공단 상가(상권)정보 API | `python -m pipeline.fetch_context` |
 | `공동주택/` (아직 없음) | 공동주택 사용승인일·세대수 | 국토교통부 공동주택 기본정보 API | `python -m pipeline.fetch_buildings` |
 
-쓰임: 상가정보는 상세 지도 계산과 주의 표시, 공동주택은 층간소음 추정(준비 중). 저장소에는 올리지 않습니다.
+쓰임: 상가정보는 정확도 조사 때 10m 칸 추정 지도에 썼고 **지금 사이트 화면에는 쓰이지 않습니다**. 공동주택은 층간소음 추정(준비 중). 저장소에는 올리지 않습니다.
 
 ## 공개저장소_행정동경계
 
@@ -72,9 +72,7 @@ data/
 
 | 파일 | 내용 | 바탕 자료 | 만드는 명령 |
 |---|---|---|---|
-| `years/{연도}.json` 등 | 동네별 밤·낮 소음, 점수, 달력, 센서 값 (가장 최근에 끝난 한 해) | 서울열린데이터광장 | `python -m pipeline.yearly` |
-| `noisemap/night_{연도}.png`, `day_{연도}.png` | 10m 칸 상세 추정 지도 (밤·낮) | 서울열린데이터광장 + 브이월드 + 공공데이터포털 | `python -m pipeline.noisemap` |
-| `noisemap/flags.png` | 자리별 주의 표시 | 브이월드 + 공공데이터포털 | `python -m pipeline.noisemap` |
+| `years/{연도}.json` 등 | 동네별 밤·낮 소음, 점수, 달력, 센서 값 (가장 최근에 끝난 한 해). **지도에 칠하는 값** | 서울열린데이터광장 | `python -m pipeline.yearly` |
 | `dongs.geojson` | 지도에 그리는 동네 경계 | 공개저장소_행정동경계 | `python -m pipeline.build` |
 | `meta.json`, `dongs_stats.json` 등 | 최근 한 달 집계와 기준값 | 서울열린데이터광장 (매일수집) | `python -m pipeline.build` |
 

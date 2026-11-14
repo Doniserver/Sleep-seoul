@@ -28,7 +28,6 @@ export const step = (input: unknown) => ["step", input, COLORS[0], ...BREAKS.fla
 /** 숫자를 모르는 사람도 읽을 수 있게 붙이는 쉬운 말. 서울 안에서 견준 것이며 지도 색과 같은 경계를 쓴다.
  *  cuts = [조용한 편 < a, 보통 < b, 시끄러운 편 < c, 그 이상은 많이 시끄러운 편]. shift = 낮처럼 색 기준을 옮긴 만큼 */
 export const DONG_CUTS: [number, number, number] = [52, 54, 58];
-export const SPOT_CUTS: [number, number, number] = [51.5, 53.5, 56];
 export function levelWord(v: number | null | undefined, cuts: [number, number, number] = DONG_CUTS, shift = 0): { word: string; tone: "quiet" | "mid" | "loud" } | null {
   if (v === null || v === undefined || Number.isNaN(v)) return null;
   const x = v - shift;

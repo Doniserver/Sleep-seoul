@@ -411,3 +411,9 @@ input[type="checkbox"] { accent-color: var(--accent); width: 15px; height: 15px;
 .ctable td.win { background: rgba(120, 200, 150, 0.12); }
 
 [hidden] { display: none !important; }
+
+/* 동네 지도 범례: 일곱 칸 색 띠 + 경계 숫자 */
+.legend .segs { display: grid; grid-template-columns: repeat(7, 1fr); gap: 2px; height: 12px; }
+.legend .segs span { border-radius: 2px; }
+.legend .segs span:first-child { border-radius: 999px 2px 2px 999px; } .legend .segs span:last-child { border-radius: 2px 999px 999px 2px; }
+.legend .seg-ticks { display: grid; grid-template-columns: repeat(6, 1fr); padding: 3px calc(100% / 14) 0; font-size: 11px; color: var(--ink); text-align: center; }

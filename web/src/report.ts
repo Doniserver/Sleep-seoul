@@ -18,7 +18,7 @@ function scoreWord(s: number | null | undefined) {
   return s >= 85 ? "아주 좋음" : s >= 65 ? "좋음" : s >= 40 ? "보통" : "나쁨";
 }
 
-export async function renderReport(el: HTMLElement, data: Data, d: Dong, opts: { onCompare?: (code: string) => void; year?: number | null; periodLabel?: string; range?: { label: string; value: number | null }; shift?: number; median?: number | null } = {}) {
+export async function renderReport(el: HTMLElement, data: Data, d: Dong, opts: { onCompare?: (code: string) => void; year?: number | null; periodLabel?: string; range?: { label: string; value: number | null }; shift?: number; median?: number | null; rank?: { n: number; of: number } } = {}) {
   const t = data.meta.thresholds;
   const pat = data.patterns.find((p) => p.name === d.pattern);
   if (d.l_night == null) {
@@ -42,8 +42,9 @@ export async function renderReport(el: HTMLElement, data: Data, d: Dong, opts: {
         <p class="lbl">${esc(when)} 동네 바깥 소음${opts.year ? ` · ${opts.year}년` : ""}</p></div>
     </div>
     ${versus ? `<p class="plain">${versus}</p>` : ""}
+    ${opts.rank ? `<p class="plain">서울 ${opts.rank.of}개 동네 가운데 <b>${opts.rank.n}번째</b>로 조용합니다.</p>` : ""}
     <p class="plain">잠자기 좋은 정도 <b>${d.score ?? "—"}점</b> / 100점${scoreWord(d.score) ? ` · ${scoreWord(d.score)}` : ""} <span class="sub">(밤 소음 기준)</span></p>
-    <p class="hint">길가 센서 ${d.n_sensors}곳이 잰 값${d.n_sensors > 1 ? "의 가운데 값" : ""}입니다.${d.n_sensors === 1 ? " 센서가 1곳뿐이라 그 자리의 영향을 크게 받습니다." : ""} 같은 동네 안에서도 큰길가와 골목은 다릅니다. 지도를 눌러 자리별로 확인하세요.</p>
+    <p class="hint">길가 센서 ${d.n_sensors}곳이 잰 값${d.n_sensors > 1 ? "의 가운데 값" : ""}입니다.${d.n_sensors === 1 ? " 센서가 1곳뿐이라 그 자리의 영향을 크게 받습니다." : ""} 센서가 달린 자리의 값이라, 같은 동네 안에서도 큰길가는 더 시끄럽고 골목 안쪽은 더 조용할 수 있습니다.</p>
     ${opts.onCompare ? `<div class="actions"><button type="button" data-x="cmp">다른 동네와 비교하기</button></div>` : ""}
     <details class="more-report">
       <summary>자세히 보기</summary>
