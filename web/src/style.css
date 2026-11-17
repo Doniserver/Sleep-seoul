@@ -417,3 +417,31 @@ input[type="checkbox"] { accent-color: var(--accent); width: 15px; height: 15px;
 .legend .segs span { border-radius: 2px; }
 .legend .segs span:first-child { border-radius: 999px 2px 2px 999px; } .legend .segs span:last-child { border-radius: 2px 999px 999px 2px; }
 .legend .seg-ticks { display: grid; grid-template-columns: repeat(6, 1fr); padding: 3px calc(100% / 14) 0; font-size: 11px; color: var(--ink); text-align: center; }
+
+/* ───────── 2026-11-18 500m 칸 + 시각 막대 ───────── */
+.tslider { display: grid; gap: 4px; background: var(--panel-2); border-radius: 10px; padding: 9px 10px 7px; }
+.ts-head { display: flex; align-items: center; justify-content: space-between; gap: 8px; }
+.ts-head p { margin: 0; color: var(--ink-2); font-size: 12px; }
+.ts-head p b { color: var(--ink); font-size: 17px; margin-right: 4px; }
+.ts-head button { border: 0; border-radius: 8px; background: var(--panel-3); color: var(--ink); font-size: 12.5px; font-weight: 600; padding: 6px 10px; white-space: nowrap; }
+.ts-head button[aria-pressed="true"] { background: var(--accent); color: #111; }
+.tslider input[type="range"] { width: 100%; margin: 4px 0 0; accent-color: var(--accent); height: 22px; }
+.ts-ticks { display: flex; justify-content: space-between; color: var(--ink-2); font-size: 11px; }
+.legend ul.chips { list-style: none; display: grid; grid-template-columns: repeat(2, 1fr); gap: 6px 10px; margin: 0; padding: 0; }
+.legend ul.chips li { display: flex; align-items: center; gap: 7px; font-size: 13px; color: var(--ink-2); white-space: nowrap; }
+.legend ul.chips li b { color: var(--ink); }
+.legend ul.chips li span { width: 16px; height: 16px; border-radius: 4px; flex: none; }
+.legend ul.chips li span.nodata { background: none; border: 1px dashed var(--ink-2); }
+.nowcount { margin: 14px 0 6px; padding: 10px 12px; border-radius: 10px; background: var(--panel-2); font-size: 13.5px; color: var(--ink-2); }
+.nowcount b { color: var(--ink); }
+.cellcard { padding: 20px 22px; display: grid; gap: 10px; }
+.cellcard h2 { margin: 0; display: flex; align-items: center; gap: 12px; font-size: 30px; letter-spacing: -0.03em; }
+.cellcard h2 .lv { font-size: 18px; padding: 5px 12px; }
+.cellcard h3 { margin: 10px 0 0; font-size: 14px; color: var(--ink-2); font-weight: 600; }
+.cellcard .plain { margin: 0; }
+.daystrip { display: grid; grid-template-columns: repeat(24, 1fr); gap: 2px; }
+.daystrip button { height: 34px; border: 0; border-radius: 3px; padding: 0; cursor: pointer; }
+.daystrip button.on { outline: 2px solid #ffffff; outline-offset: 1px; position: relative; z-index: 1; }
+.daystrip button:focus-visible { outline: 2px solid var(--accent); outline-offset: 1px; }
+.cellcard #cardclose { justify-self: start; margin-top: 6px; }
+@media (max-width: 900px) { .cellcard { padding: 16px; } .cellcard h2 { font-size: 26px; } }
