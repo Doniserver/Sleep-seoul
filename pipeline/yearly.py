@@ -342,9 +342,6 @@ def run(years: list[int] | None = None, recollect: bool = False):
                 _dump(OUT / f"{y}_calendar.json", compact_calendar(res["calendar"], res["info"]))
                 _dump(OUT / f"{y}_sensors.json", res["sensors"])
                 index[y] = res["info"]
-                if (YEARS_RAW / f"{y}.parquet").exists():      # 지도에 칠하는 500m 칸 자료도 같은 해로 맞춘다
-                    from pipeline import cells
-                    cells.write(y)
                 print(f"[yearly] {y}: 밤 {n}일, 동 {res['info']['dongs_with_data']}곳, 서울 중앙값 {res['info']['seoul_median']}dB")
         if not explicit and display_year({k: v.get("nights", 0) for k, v in index.items()}) == y:
             break                              # 가장 최근의 온전한 해를 확보했으면 더 옛 해는 만들지 않는다

@@ -2,9 +2,10 @@ import * as maplibregl from "maplibre-gl";
 import type { Map as MlMap, StyleSpecification } from "maplibre-gl";
 import "maplibre-gl/dist/maplibre-gl.css";
 import workerUrl from "maplibre-gl/dist/maplibre-gl-worker.mjs?url";
-import { type Cell, type CellsFile, GRADES, type Grade, cellIdAt, gradeOf, hourLabel, loadCells } from "./cells";
-import { type Data, type YearInfo, loadYearsIndex, sortedDongs } from "./data";
-import { type Place, dist, dongAt, searchPlaces } from "./place";
+import { type Data } from "./data";
+import { DONG_COLORS, type DongShares, FEEL, type HeatInfo, WORDS, dongGrade, heatUrl, hourLabel, loadDongShares, loadHeat, loadLevels, pixelIndex } from "./heat";
+import { type Place, dongAt, searchPlaces } from "./place";
+import { sortedDongs } from "./data";
 
 function escHtml(s: string) {
   return s.replace(/[&<>"']/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]!));
@@ -36,246 +37,293 @@ const STYLE: StyleSpecification = {
   ],
 };
 
-const START_HOUR = 23;
-// 소음 색칠을 잠시 끈다 (2026-11-18: 표현 방식을 다시 정하는 동안). true 로 바꾸면 500m 칸 + 시각 막대가 다시 나온다
-const NOISE_ON = false;
+type View = "heat" | "dong";
 
+/** 지도 화면. 보기 방식 두 가지: 히트맵(자리별) / 동네별. 소음 자료는 같은 것을 쓴다(pipeline/heatmap.py). */
 export function renderMap(root: HTMLElement, data: Data, params: URLSearchParams) {
-  const chip = (g: Grade, score: number) => `<li><span style="background:${GRADES[g].color}"></span><b>${GRADES[g].word}</b> ${score}점</li>`;
   root.innerHTML = `
-  <div class="mapgrid">
-    <section class="mapwrap" aria-label="서울 시간대별 소음 지도">
+  <div class="mapgrid svc">
+    <section class="mapwrap" aria-label="서울 소음 지도">
       <div id="v3d" class="v3d" hidden>
         <iframe id="v3d-frame" title="브이월드 실사 3D 지도" allow="fullscreen"></iframe>
         <p class="v3d-chip" id="v3d-title" aria-live="polite"></p>
-        <p class="v3d-note">실제 건물 모습은 브이월드(국토교통부) 3D 지도입니다. 소음은 건물마다 잰 것이 아니라 길가 센서가 잰 값입니다.</p>
+        <p class="v3d-note">실제 건물 모습은 브이월드(국토교통부) 3D 지도입니다. 소음은 건물마다 잰 것이 아니라 추정한 값입니다.</p>
       </div>
       <p class="v3d-loading" id="v3d-loading" role="status" hidden>실사 3D로 넘어가는 중…</p>
-      <div id="map" role="application" aria-label="500m 칸별 소음 지도. 시각 막대로 0시부터 23시까지 바꿔 볼 수 있습니다."></div>
-      <div class="ctrl">
+      <div id="map" role="application" aria-label="서울 소음 지도. 보기 방식과 시간대를 바꿀 수 있고, 지도를 누르면 그 자리의 소음이 나옵니다."></div>
+      <div class="tbar">
         <form class="search" id="qform" role="search">
           <label for="q" class="sr">동네·건물·장소 찾기</label>
           <div class="qrow">
-            <input list="dong-list" id="q" placeholder="동네·건물·역 이름으로 찾기" autocomplete="off" />
+            <input list="dong-list" id="q" placeholder="주소, 동네, 건물, 역 이름으로 찾기" autocomplete="off" />
             <button type="submit">찾기</button>
           </div>
           <p id="qmsg" class="qmsg" aria-live="polite"></p>
           <ul id="qres" class="qres"></ul>
         </form>
         <datalist id="dong-list">${sortedDongs(data).map((d) => `<option value="${d.gu} ${d.name}"></option>`).join("")}</datalist>
-        <div class="tslider">
-          <div class="ts-head">
-            <p><b id="tlabel" aria-live="polite">${hourLabel(START_HOUR)}</b> <span id="tsub">${START_HOUR}시~${START_HOUR + 1}시</span></p>
-            <button type="button" id="tplay" aria-pressed="false">▶ 하루 재생</button>
+        <div class="pills">
+          <div class="vswitch" role="group" aria-label="보기 방식">
+            <button type="button" data-v="heat" aria-pressed="true">히트맵</button>
+            <button type="button" data-v="dong" aria-pressed="false">동네별</button>
           </div>
-          <input type="range" id="thour" min="0" max="23" step="1" value="${START_HOUR}" aria-label="시각 (0시~23시)" />
-          <div class="ts-ticks" aria-hidden="true"><span>0시</span><span>6시</span><span>12시</span><span>18시</span><span>23시</span></div>
-        </div>
-        <div class="row basemap" role="group" aria-label="지도 보기 방식">
-          <button type="button" data-view="map" aria-pressed="true">배경지도</button>
-          <button type="button" data-view="sat" aria-pressed="false">실사 2D</button>
-          <button type="button" data-view="3d" aria-pressed="false">실사 3D</button>
-        </div>
-        <details class="more">
-          <summary>지도 설정</summary>
-          <div class="morebody">
-            <label class="lightopt"><input type="checkbox" id="bmlight" /> 배경지도를 밝게</label>
-            <label class="opacity">색 진하기 <span id="oplabel">85%</span>
-              <input type="range" id="op" min="0" max="100" step="5" value="85" aria-describedby="oplabel" />
-            </label>
+          <div class="trange" role="group" aria-label="시간대">
+            <button type="button" data-tr="night" aria-pressed="true">밤</button>
+            <button type="button" data-tr="day" aria-pressed="false">낮</button>
           </div>
-        </details>
+          <details class="more">
+            <summary>시각·지도 설정</summary>
+            <div class="morebody">
+              <div class="tslider sub">
+                <div class="ts-head">
+                  <p><b id="tlabel" aria-live="polite">밤 11시</b></p>
+                  <button type="button" id="tplay" aria-pressed="false">▶ 하루 재생</button>
+                </div>
+                <input type="range" id="thour" min="0" max="23" step="1" value="23" aria-label="시각 (0시~23시)" />
+                <div class="ts-ticks" aria-hidden="true"><span>0시</span><span>6시</span><span>12시</span><span>18시</span><span>23시</span></div>
+              </div>
+              <div class="row basemap" role="group" aria-label="지도 바탕">
+                <button type="button" data-view="map" aria-pressed="true">배경지도</button>
+                <button type="button" data-view="sat" aria-pressed="false">실사 2D</button>
+                <button type="button" data-view="3d" aria-pressed="false">실사 3D</button>
+              </div>
+              <label class="lightopt"><input type="checkbox" id="bmlight" checked /> 배경지도를 밝게</label>
+              <label class="opacity">색 진하기 <span id="oplabel">72%</span>
+                <input type="range" id="op" min="0" max="100" step="5" value="72" aria-describedby="oplabel" />
+              </label>
+            </div>
+          </details>
+        </div>
       </div>
-      <p class="maphint" id="maphint"><span><b>막대를 끌면</b> 시간에 따라 색이 바뀝니다</span><button type="button" aria-label="안내 닫기">×</button></p>
+      <p class="maphint" id="maphint" hidden><span></span><button type="button" aria-label="안내 닫기">×</button></p>
       <div class="maplegend">
         <div class="legend" aria-label="색 설명">
-          <p><span id="lwhen">${hourLabel(START_HOUR)}</span>의 집 밖 소음</p>
-          <ul class="chips" id="lchips"></ul>
-          <p class="hint">색이 없는 곳은 센서가 없어 <b>재지 못한 곳</b>입니다.</p>
+          <p><span id="lwhen">밤</span>의 집 밖 소음 <small class="est">추정</small></p>
+          <div id="lbody"></div>
         </div>
       </div>
+      <aside id="panel" class="panel sheet" aria-live="polite"><div class="intro"><p class="loading">불러오는 중…</p></div></aside>
     </section>
-    <aside id="panel" class="panel" aria-live="polite"></aside>
   </div>`;
 
-  let year: number | null = null;
-  let yearInfos: YearInfo[] = [];
-  let file: CellsFile | null = null;
-  const byId = new Map<string, { cell: Cell; fid: number }>();
-  let hour = Math.min(23, Math.max(0, Number(params.get("h") ?? START_HOUR) || 0));
-  if (!params.has("h")) hour = START_HOUR;
-  let selected: string | null = params.get("c");
-  let dongSel: string | null = null;         // 이름으로 찾은 동네 (경계선만 보여 준다)
+  // ── 상태 ──
+  let heat: HeatInfo | null = null;
+  let shares: DongShares | null = null;
+  const lv: Record<string, Uint8Array | undefined> = {};       // 그림 이름 → 자리별 단계
+  let view: View = params.get("v") === "dong" ? "dong" : "heat";
+  const t0 = params.get("t") ?? "night";
+  let sel: "night" | "day" | null = t0 === "night" || t0 === "day" ? t0 : null;   // null 이면 시각 막대에서 고른 시각
+  let hour = sel ? 23 : Math.min(23, Math.max(0, Number(t0.replace("h", "")) || 0));
+  let pick: { lon: number; lat: number } | null = null;         // 히트맵에서 누른 자리
+  let dongSel: string | null = params.get("d");                 // 고른 동네
   let playing = 0;
+  let shown = "";
+  let lineBase = "#5b667d";
+  const key = () => sel ?? `h${hour}`;
+  const when = () => (sel === "night" ? "밤" : sel === "day" ? "낮" : hourLabel(hour));
+  const dongName = (code: string | null) => { const d = code ? data.dongs[code] : null; return d ? `${d.gu} ${d.name}` : "서울"; };
+  const title3D = () => (dongSel ? `${dongName(dongSel)} · ${when()}` : "");
+  const writeUrl = () => history.replaceState(null, "", `#/map?v=${view}&t=${key()}${view === "dong" && dongSel ? `&d=${dongSel}` : ""}`);
 
-  const periodLabel = () => {
-    if (!year) return "";
-    const y = yearInfos.find((x) => x.year === year);
-    return y ? `${year}년 · ${y.start} ~ ${y.end}${y.partial ? " (일부 기간)" : ""}` : `${year}년`;
-  };
   const map: MlMap = new maplibregl.Map({ container: "map", style: STYLE, center: [126.99, 37.56], zoom: 10.6, minZoom: 9, maxZoom: 18, attributionControl: { compact: true } });
   map.addControl(new maplibregl.NavigationControl({ visualizePitch: true }), "top-right");
   if (import.meta.env.DEV) (window as any).__map = map; // 개발 중 디버그용
 
   const panel = root.querySelector<HTMLElement>("#panel")!;
   const slider = root.querySelector<HTMLInputElement>("#thour")!;
+  const trBtns = [...root.querySelectorAll<HTMLButtonElement>("[data-tr]")];
+  const vBtns = [...root.querySelectorAll<HTMLButtonElement>("[data-v]")];
   slider.value = String(hour);
-  const gradeAt = (c: Cell, h = hour): Grade => gradeOf(c.h[h], file!.cuts);
-  const whereOf = (c: Cell) => {
-    const code = dongAt(data, c.lon, c.lat);
-    const d = code ? data.dongs[code] : null;
-    return d ? `${d.gu} ${d.name}` : "서울";
+  let pin: maplibregl.Marker | null = null;
+  const coords = (): [[number, number], [number, number], [number, number], [number, number]] => {
+    const b = heat!.bounds; return [[b.west, b.north], [b.east, b.north], [b.east, b.south], [b.west, b.south]];
   };
-  const title3D = () => {
-    const s = selected ? byId.get(selected) : null;
-    return s && file ? `${whereOf(s.cell)} 부근 · ${hourLabel(hour)} ${GRADES[gradeAt(s.cell)].word}` : "";
+  const needLevels = (k: string) => {
+    if (!heat || k in lv || !heat.frames[k]) return;
+    lv[k] = undefined;
+    loadLevels(heat, k).then((a) => { lv[k] = a; if (view === "heat") renderPanel(); }).catch(() => { delete lv[k]; });
   };
-  const writeUrl = () => history.replaceState(null, "", `#/map?h=${hour}${selected ? `&c=${selected}` : ""}`);
+  const strip = (cells: { color: string | null; label: string }[]) => `
+    <div class="daystrip heat" role="group" aria-label="0시부터 23시까지. 누르면 그 시각의 지도로 바뀝니다.">${cells.map((c, h) =>
+      `<button type="button" data-h="${h}" class="${sel === null && h === hour ? "on" : ""} ${c.color ? "" : "none"}" style="background:${c.color ?? "transparent"}" aria-label="${hourLabel(h)} ${c.label}"></button>`).join("")}</div>
+    <div class="ts-ticks" aria-hidden="true"><span>0시</span><span>6시</span><span>12시</span><span>18시</span><span>23시</span></div>`;
+  const wireCard = (close: () => void) => {
+    panel.querySelectorAll<HTMLButtonElement>(".daystrip button").forEach((b) => b.addEventListener("click", () => setHour(+b.dataset.h!)));
+    panel.querySelector("#cardclose")?.addEventListener("click", close);
+  };
 
   // ── 오른쪽 안내 칸 ──
-  const OFF_HTML = `<h2>소음 표시를 준비하고 있습니다</h2>
-      <p class="plain">소음을 더 정확하고 알아보기 쉽게 보여 주는 방법을 다시 정하는 중이라, 지도의 소음 색을 잠시 내렸습니다.</p>
-      <p class="hint">지금은 배경지도·실사 2D·실사 3D와 장소 찾기만 쓸 수 있습니다.</p>`;
   const intro = (note = "") => {
-    if (!NOISE_ON) { panel.innerHTML = `<div class="intro">${note ? `<p class="plain">${note}</p>` : ""}${OFF_HTML}</div>`; return; }
-    if (!file) { panel.innerHTML = `<div class="intro"><p class="loading">불러오는 중…</p></div>`; return; }
-    const n = [0, 0, 0];
-    for (const c of file.cells) n[gradeAt(c)]++;
     panel.innerHTML = `
-      <div class="intro">
-        <h2>서울, 언제 어디가 조용할까요?</h2>
+      <div class="intro simple">
+        <h2>이 집, 밤에 조용할까요?</h2>
         ${note ? `<p class="plain">${note}</p>` : ""}
-        <p><b class="c-quiet">파란 칸</b>은 조용하고 <b class="c-loud">주황 칸</b>은 시끄럽습니다.</p>
-        <ol class="steps">
-          <li><span><b>시각 막대를 끌어 보세요.</b> 0시부터 23시까지 색이 바뀝니다.</span></li>
-          <li><span><b>색칠된 칸을 눌러 보세요.</b> 그 자리의 하루가 나옵니다.</span></li>
-          <li><span><b>실사 2D·3D</b>로 실제 건물을 확인하세요.</span></li>
-        </ol>
-        <p class="nowcount"><b>${hourLabel(hour)}</b> · 조용 ${n[0]}칸 · 보통 ${n[1]}칸 · 시끄러움 ${n[2]}칸</p>
-        <p class="hint">칸 하나는 폭 ${file.hex_m}m입니다. 길가 센서가 ${year}년 한 해 동안 잰 집 밖 소음이며, 집 안 소음이 아닙니다. 센서가 있는 칸만 색을 칠했고 빈 곳을 짐작으로 채우지 않았습니다.</p>
+        <p class="lead">주소를 찾거나 ${view === "heat" ? "지도를 눌러 보세요." : "동네를 눌러 보세요."} <b>색이 진할수록</b> 시끄러운 곳입니다.</p>
+        <p class="hint">집 밖 소음을 추정한 값이며, 집 안 소음과는 다릅니다.</p>
       </div>`;
   };
-  const card = (c: Cell) => {
-    const g = gradeAt(c), G = GRADES[g];
-    const strip = c.h.map((v, h) => `<button type="button" data-h="${h}" class="${h === hour ? "on" : ""}" style="background:${GRADES[gradeOf(v, file!.cuts)].color}" aria-label="${hourLabel(h)} ${GRADES[gradeOf(v, file!.cuts)].word}"></button>`).join("");
-    const quiet = c.h.filter((v) => gradeOf(v, file!.cuts) === 0).length, loud = c.h.filter((v) => gradeOf(v, file!.cuts) === 2).length;
+  const heatCard = (): boolean => {
+    if (!heat || !pick) return false;
+    const i = pixelIndex(heat, pick.lon, pick.lat);
+    const at = (k: string) => (i == null ? 255 : lv[k]?.[i]);
+    const cur = at(shown);
+    if (cur === 255) { intro("누른 자리는 서울 밖이거나 값이 없는 곳입니다."); return true; }
+    if (cur == null) { intro("불러오는 중입니다…"); return true; }
+    for (let h = 0; h < 24; h++) needLevels(`h${h}`);
+    const day = Array.from({ length: 24 }, (_, h) => at(`h${h}`));
+    const full = day.every((v) => v != null && v !== 255);
     panel.innerHTML = `
-      <section class="cellcard" aria-label="고른 칸의 소음">
-        <p class="pc-kicker">${escHtml(whereOf(c))} 부근 · ${hourLabel(hour)}</p>
-        <h2><span class="lv lv-${G.tone}">${G.word}</span> <b>${file!.scores[g]}점</b></h2>
-        <p class="plain">${G.feel}</p>
-        <h3>이 자리의 하루</h3>
-        <div class="daystrip" role="group" aria-label="0시부터 23시까지의 소음. 누르면 그 시각으로 바뀝니다.">${strip}</div>
-        <div class="ts-ticks" aria-hidden="true"><span>0시</span><span>6시</span><span>12시</span><span>18시</span><span>23시</span></div>
-        <p class="plain">하루 24시간 가운데 조용한 시간이 <b>${quiet}시간</b>, 시끄러운 시간이 <b>${loud}시간</b>입니다.</p>
-        <p class="hint">이 칸 안의 길가 센서 ${c.n}곳이 ${year}년 한 해 동안 잰 값입니다${c.n === 1 ? " (센서가 1곳뿐이라 그 센서가 달린 자리의 영향을 받습니다)" : ""}. 집 안 소음이 아니며, 간이측정기로 잰 비교용 값입니다.</p>
-        <details class="more-report"><summary>숫자로 보기</summary>
-          <p class="plain">${hourLabel(hour)} 평균 <b>${c.h[hour].toFixed(1)}dB</b> · 하루 중 가장 조용할 때 ${Math.min(...c.h).toFixed(1)}dB · 가장 시끄러울 때 ${Math.max(...c.h).toFixed(1)}dB</p>
-          <p class="hint">${file!.cuts[0]}dB 미만은 조용, ${file!.cuts[1]}dB 미만은 보통, 그 이상은 시끄러움으로 나눴습니다.</p>
-        </details>
-        <button type="button" class="link" id="cardclose">← 처음 안내로</button>
+      <section class="cellcard simple" aria-label="누른 자리의 소음">
+        <p class="pc-kicker">${escHtml(dongName(dongAt(data, pick.lon, pick.lat)))} · ${when()}</p>
+        <h2><span class="heatdot ${cur === 0 ? "none" : ""}" style="background:${cur === 0 ? "transparent" : heat.colors[cur]}"></span><b>${WORDS[cur]}</b><small>${heat.scores[cur]}점</small></h2>
+        <p class="plain">${FEEL[cur]}</p>
+        ${full ? `<h3>이 자리의 하루</h3>${strip(day.map((v) => ({ color: v === 0 ? null : heat!.colors[v as number], label: WORDS[v as number] })))}` : ""}
+        <p class="hint">집 밖 소음을 주변 센서와 도로 등으로 추정한 값입니다. 집 안 소음과는 다릅니다.</p>
+        <button type="button" class="link" id="cardclose">← 닫기</button>
       </section>`;
-    panel.querySelectorAll<HTMLButtonElement>(".daystrip button").forEach((b) => b.addEventListener("click", () => setHour(+b.dataset.h!)));
-    panel.querySelector("#cardclose")!.addEventListener("click", () => select(null));
+    wireCard(() => { pick = null; pin?.remove(); pin = null; renderPanel(); });
+    return true;
+  };
+  const dongCard = (): boolean => {
+    if (!heat || !shares || !dongSel || !data.dongs[dongSel]) return false;
+    const s = shares[key()]?.[dongSel];
+    if (!s) { intro(`<b>${escHtml(dongName(dongSel))}</b>은(는) 값을 낼 수 있는 자리가 없습니다.`); return true; }
+    const gradeAt = (k: string, x: number[]) => dongGrade(x[3], heat!.frames[k].cuts);
+    const b = gradeAt(shown, s);
+    const pct = (x: number) => Math.round(x * 100);
+    const day = Array.from({ length: 24 }, (_, h) => shares![`h${h}`]?.[dongSel!]);
+    panel.innerHTML = `
+      <section class="cellcard simple" aria-label="고른 동네의 소음">
+        <p class="pc-kicker">${escHtml(dongName(dongSel))} · ${when()}</p>
+        <h2><span class="heatdot" style="background:${DONG_COLORS[b]}"></span><b>${WORDS[b]}</b><small>${heat.scores[b]}점</small></h2>
+        <p class="plain">${FEEL[b]}</p>
+        <h3>이 동네 안을 나눠 보면</h3>
+        <div class="sharebar" role="img" aria-label="조용 ${pct(s[0])}%, 보통 ${pct(s[1])}%, 시끄러움 ${pct(s[2])}%">
+          <span class="q" style="flex:${s[0]}"></span><span style="flex:${s[1]};background:${heat.colors[1]}"></span><span style="flex:${s[2]};background:${heat.colors[2]}"></span>
+        </div>
+        <p class="sharekey"><span>조용 ${pct(s[0])}%</span><span>보통 ${pct(s[1])}%</span><span>시끄러움 ${pct(s[2])}%</span></p>
+        ${day.every(Boolean) ? `<h3>이 동네의 하루</h3>${strip(day.map((x: number[] | undefined, hh: number) => { const k = gradeAt(`h${hh}`, x!); return { color: k === 0 ? null : heat!.colors[k], label: WORDS[k] }; }))}` : ""}
+        <p class="hint">같은 동네 안에서도 큰길가와 안쪽은 다릅니다. 집 밖 소음을 추정한 값이며, 집 안 소음과는 다릅니다.</p>
+        <button type="button" class="link" id="toheat">이 동네를 히트맵으로 자세히 보기 →</button>
+        <button type="button" class="link" id="cardclose">← 닫기</button>
+      </section>`;
+    wireCard(() => selectDong(null));
+    panel.querySelector("#toheat")!.addEventListener("click", () => { setMode("heat"); fitDong(dongSel!); });
+    return true;
   };
   const renderPanel = (note = "") => {
-    const s = selected ? byId.get(selected) : null;
-    if (s && file) card(s.cell); else intro(note);
+    if (view === "heat" ? heatCard() : dongCard()) return;
+    intro(note);
   };
 
   // ── 색칠 ──
+  const styleLines = () => {
+    if (!map.getLayer("line")) return;
+    const d = view === "dong";
+    map.setPaintProperty("line", "line-color", d ? "#ffffff" : lineBase);
+    map.setPaintProperty("line", "line-width", d ? 0.9 : 0.5);
+    map.setPaintProperty("line", "line-opacity", d ? 0.9 : 0.3);
+  };
   const paint = () => {
     root.querySelector("#tlabel")!.textContent = hourLabel(hour);
-    root.querySelector("#tsub")!.textContent = `${hour}시~${hour + 1}시`;
-    root.querySelector("#lwhen")!.textContent = hourLabel(hour);
-    if (!file || !map.getSource("cells")) return;
-    for (const { cell, fid } of byId.values()) map.setFeatureState({ source: "cells", id: fid }, { g: gradeAt(cell) });
-  };
-  const setHour = (h: number, fromPlay = false) => {
-    hour = (h + 24) % 24;
-    slider.value = String(hour);
-    if (!fromPlay) stop();
-    paint(); renderPanel(); writeUrl();
+    root.querySelector("#lwhen")!.textContent = when();
+    trBtns.forEach((x) => x.setAttribute("aria-pressed", String(x.dataset.tr === sel)));
+    vBtns.forEach((x) => x.setAttribute("aria-pressed", String(x.dataset.v === view)));
+    if (!heat || !map.getLayer("line")) return;
+    const k = heat.frames[key()] ? key() : "night";
+    if (!map.getSource("heat")) {
+      map.addSource("heat", { type: "image", url: heatUrl(heat, k), coordinates: coords() });
+      map.addLayer({ id: "heat", type: "raster", source: "heat", paint: { "raster-opacity": 0.72, "raster-fade-duration": 0 } }, "line");
+    } else if (shown !== k) (map.getSource("heat") as maplibregl.ImageSource).updateImage({ url: heatUrl(heat, k), coordinates: coords() });
+    shown = k;
+    needLevels(k);
+    map.setLayoutProperty("heat", "visibility", view === "heat" ? "visible" : "none");
+    map.setLayoutProperty("dfill", "visibility", view === "dong" ? "visible" : "none");
+    if (shares) {
+      const cur = shares[k] ?? {};
+      for (const f of data.geo.features) {
+        const s = cur[(f.properties as any).code];
+        map.setFeatureState({ source: "dongs", id: f.id as number }, s ? { has: true, b: dongGrade(s[3], heat.frames[k].cuts) } : { has: false, b: 0 });
+      }
+    }
+    map.setFilter("dsel", ["==", ["get", "code"], view === "dong" || !pick ? dongSel ?? "" : ""]);
+    styleLines();
+    root.querySelector("#lbody")!.innerHTML = view === "heat"
+      ? `<ul class="chips">${heat.colors.map((c, i) => `<li><span ${i === 0 ? 'class="nodata"' : `style="background:${c}"`}></span><b>${WORDS[i]}</b></li>`).join("")}</ul>`
+      : `<ul class="chips">${DONG_COLORS.map((c, i) => `<li><span style="background:${c}"></span><b>${WORDS[i]}</b></li>`).join("")}</ul>`;
+    applyOpacity();
+    renderPanel();
+    writeUrl();
     if (view3D()) root.querySelector("#v3d-title")!.textContent = title3D();
   };
-  const select = (id: string | null, fly = false) => {
-    selected = id && byId.has(id) ? id : null;
-    if (map.getLayer("sel")) map.setFilter("sel", ["==", ["get", "id"], selected ?? ""]);
-    renderPanel(); writeUrl();
-    const s = selected ? byId.get(selected)! : null;
-    if (s && fly) map.flyTo({ center: [s.cell.lon, s.cell.lat], zoom: Math.max(map.getZoom(), 13.5), duration: view3D() ? 0 : 600 });
+  const setHour = (h: number, fromPlay = false) => {
+    hour = (h + 24) % 24; sel = null;
+    slider.value = String(hour);
+    if (!fromPlay) stop();
+    paint();
+  };
+  const setMode = (v: View) => {
+    view = v;
+    if (v === "dong") { pick = null; pin?.remove(); pin = null; }
+    paint();
+  };
+  const fitDong = (code: string) => {
+    const f = data.geo.features.find((x) => (x.properties as any).code === code);
+    if (!f) return;
+    const b = new maplibregl.LngLatBounds();
+    const walk = (c: any) => (typeof c[0] === "number" ? b.extend(c as [number, number]) : c.forEach(walk));
+    walk((f.geometry as any).coordinates);
+    map.fitBounds(b, { padding: 60, maxZoom: 14.5, duration: view3D() ? 0 : 600 });
+  };
+  const selectDong = (code: string | null, fly = false) => {
+    dongSel = code && data.dongs[code] ? code : null;
+    if (dongSel && fly) fitDong(dongSel);
+    paint();
     if (view3D()) { v3dCenter = null; setTimeout(() => sync3D(fly), fly ? 50 : 0); }
   };
-  const showDong = (code: string) => {
-    dongSel = code;
-    if (map.getLayer("dsel")) map.setFilter("dsel", ["==", ["get", "code"], code]);
-    const f = data.geo.features.find((x) => (x.properties as any).code === code);
-    if (f) {
-      const b = new maplibregl.LngLatBounds();
-      const walk = (c: any) => (typeof c[0] === "number" ? b.extend(c as [number, number]) : c.forEach(walk));
-      walk((f.geometry as any).coordinates);
-      map.fitBounds(b, { padding: 60, maxZoom: 14.5, duration: view3D() ? 0 : 600 });
-    }
-    const d = data.dongs[code];
-    selected = null;
-    if (map.getLayer("sel")) map.setFilter("sel", ["==", ["get", "id"], ""]);
-    const inside = file ? file.cells.filter((c) => dongAt(data, c.lon, c.lat) === code).length : 0;
-    intro(`<b>${escHtml(d.gu)} ${escHtml(d.name)}</b>(흰 선)로 옮겼습니다. ${!NOISE_ON ? "" : inside ? "색칠된 칸을 누르면 그 자리의 소음이 나옵니다." : "이 동네에는 센서가 있는 칸이 없어 색이 없습니다."}`);
-    writeUrl();
-    if (view3D()) sync3D(true);
-  };
 
-  // 배경 타일을 다 받을 때까지 기다리지 않고, 스타일만 준비되면 바로 색칠
-  let styleReady = false;
-  const addCells = () => {
-    if (!styleReady || !file || map.getSource("cells")) return;
-    byId.clear();
-    const fc: any = { type: "FeatureCollection", features: file.cells.map((c, i) => {
-      byId.set(c.id, { cell: c, fid: i });
-      return { type: "Feature", id: i, properties: { id: c.id }, geometry: { type: "Polygon", coordinates: [c.ring] } };
-    }) };
-    map.addSource("cells", { type: "geojson", data: fc });
-    const color: any = ["match", ["coalesce", ["feature-state", "g"], 1], 0, GRADES[0].color, 2, GRADES[2].color, GRADES[1].color];
-    map.addLayer({ id: "fill", type: "fill", source: "cells", paint: { "fill-color": color, "fill-opacity": 0.85, "fill-color-transition": { duration: 350 } } as any }, "line");
-    map.addLayer({ id: "cline", type: "line", source: "cells", paint: { "line-color": "#0b111c", "line-width": 1 } }, "line");
-    map.addLayer({ id: "sel", type: "line", source: "cells", filter: ["==", ["get", "id"], selected ?? ""], paint: { "line-color": "#ffffff", "line-width": 3 } });
-    root.querySelector("#lchips")!.innerHTML = ([0, 1, 2] as Grade[]).map((g) => chip(g, file!.scores[g])).join("") + `<li><span class="nodata"></span>측정 없음</li>`;
-    paint(); applyOpacity();
-    if (selected && !byId.has(selected)) selected = null;
-    if (lastPlace) showPlace(lastPlace); else { renderPanel(); if (selected) select(selected, true); }
-
-    const pop = new maplibregl.Popup({ closeButton: false, closeOnClick: false, className: "tip" });
-    map.on("mousemove", "fill", (e) => {
-      const c = byId.get(String(e.features?.[0]?.properties?.id))?.cell; if (!c) return;
-      map.getCanvas().style.cursor = "pointer";
-      const g = gradeAt(c);
-      pop.setLngLat(e.lngLat).setHTML(`<b>${GRADES[g].word}</b> ${file!.scores[g]}점<br>${hourLabel(hour)}`).addTo(map);
-    });
-    map.on("mouseleave", "fill", () => { map.getCanvas().style.cursor = ""; pop.remove(); });
-    map.on("click", "fill", (e) => {
-      const id = String(e.features?.[0]?.properties?.id ?? "");
-      clearPlace();
-      select(id);
-    });
-  };
   map.once("style.load", () => {
-    styleReady = true;
-    // 동네 경계는 위치를 알아보는 용도로만 옅게 긋는다 (색은 칸에만 칠한다)
     map.addSource("dongs", { type: "geojson", data: data.geo });
-    map.addLayer({ id: "line", type: "line", source: "dongs", paint: { "line-color": "#8a93a6", "line-width": 0.5, "line-opacity": 0.35 } });
+    const col: any = ["match", ["coalesce", ["feature-state", "b"], 0], 1, DONG_COLORS[1], 2, DONG_COLORS[2], DONG_COLORS[0]];
+    map.addLayer({ id: "dfill", type: "fill", source: "dongs", layout: { visibility: "none" },
+      paint: { "fill-color": col, "fill-opacity": ["case", ["boolean", ["feature-state", "has"], false], 0.72, 0], "fill-color-transition": { duration: 300 } } as any });
+    map.addLayer({ id: "line", type: "line", source: "dongs", paint: { "line-color": lineBase, "line-width": 0.5, "line-opacity": 0.3 } });
     // 지명·도로 이름: 색칠에 가려지지 않게 맨 위에 다시 얹는다 (브이월드 Hybrid = 투명 바탕의 지명·도로)
     if (VW_KEY) map.addLayer({ id: "vw-label", type: "raster", source: "vw-label", paint: { "raster-opacity": 0.85 } });
-    map.addLayer({ id: "dsel", type: "line", source: "dongs", filter: ["==", ["get", "code"], ""], paint: { "line-color": "#ffffff", "line-width": 2, "line-dasharray": [2, 1.5] } });
-    addCells();
+    map.addLayer({ id: "dsel", type: "line", source: "dongs", filter: ["==", ["get", "code"], ""], paint: { "line-color": "#111827", "line-width": 2.5 } });
+    setBasemap("light");
+    paint();
+    if (dongSel && view === "dong") fitDong(dongSel);
+
+    const pop = new maplibregl.Popup({ closeButton: false, closeOnClick: false, className: "tip" });
+    map.on("mousemove", "dfill", (e) => {
+      const code = String(e.features?.[0]?.properties?.code ?? "");
+      const s = heat && shares?.[shown]?.[code];
+      map.getCanvas().style.cursor = "pointer";
+      pop.setLngLat(e.lngLat).setHTML(`<b>${escHtml(dongName(code))}</b><br>${s ? `${WORDS[dongGrade(s[3], heat!.frames[shown].cuts)]} · ${heat!.scores[dongGrade(s[3], heat!.frames[shown].cuts)]}점` : "값 없음"}`).addTo(map);
+    });
+    map.on("mouseleave", "dfill", () => { map.getCanvas().style.cursor = ""; pop.remove(); });
+    map.on("click", (e) => {
+      if (!heat) return;
+      clearPlace();
+      if (view === "dong") { selectDong(dongAt(data, e.lngLat.lng, e.lngLat.lat)); return; }
+      dongSel = null;
+      pick = { lon: e.lngLat.lng, lat: e.lngLat.lat };
+      pin?.remove();
+      pin = new maplibregl.Marker({ color: "#111827", scale: 0.7 }).setLngLat(e.lngLat).addTo(map);
+      paint();
+    });
   });
 
-  // ── 시각 막대 + 재생 ──
+  // ── 보기 방식, 시간대, 시각 막대, 재생 ──
   const playBtn = root.querySelector<HTMLButtonElement>("#tplay")!;
   const stop = () => {
     if (!playing) return;
     clearInterval(playing); playing = 0;
     playBtn.setAttribute("aria-pressed", "false"); playBtn.textContent = "▶ 하루 재생";
   };
+  vBtns.forEach((b) => b.addEventListener("click", () => setMode(b.dataset.v as View)));
+  trBtns.forEach((b) => b.addEventListener("click", () => { stop(); sel = b.dataset.tr as "night" | "day"; paint(); }));
   slider.addEventListener("input", () => setHour(+slider.value));
   playBtn.addEventListener("click", () => {
     if (playing) { stop(); return; }
@@ -283,27 +331,17 @@ export function renderMap(root: HTMLElement, data: Data, params: URLSearchParams
     playing = window.setInterval(() => setHour(hour + 1, true), 900);
   });
 
-  // 화면에 쓰는 해는 하나: 가장 최근에 끝난 해
-  if (!NOISE_ON) {
-    for (const q of [".tslider", ".maplegend", "#maphint"]) root.querySelector<HTMLElement>(q)!.hidden = true;
-    intro();
-  } else intro();
-  if (NOISE_ON) loadYearsIndex().then(async (ys) => {
-    yearInfos = ys;
-    const want = ys[ys.length - 1]?.year;
-    if (!want) return;
-    year = want;
-    try { file = await loadCells(want); } catch (e) { panel.innerHTML = `<p class="empty">칸 자료를 불러오지 못했습니다. (${escHtml(String(e))})</p>`; return; }
+  Promise.all([loadHeat(), loadDongShares()]).then(([h, s]) => {
+    heat = h; shares = s;
     const fp = document.getElementById("foot-period");
-    if (fp) fp.textContent = periodLabel();
-    addCells();
-    renderPanel();
-  });
-  // 첫 안내: 닫거나 지도를 한 번 누르거나 막대를 움직이면 사라진다
+    if (fp) fp.textContent = `${h.year}년 한 해`;
+    paint();
+    if (lastPlace) showPlace(lastPlace);
+  }).catch((e) => { panel.innerHTML = `<p class="empty">소음 자료를 불러오지 못했습니다. (${escHtml(String(e))})</p>`; });
+  // 첫 안내: 닫거나 지도를 한 번 누르면 사라진다
   const maphint = root.querySelector<HTMLElement>("#maphint")!;
   maphint.querySelector("button")!.addEventListener("click", () => (maphint.hidden = true));
   map.on("click", () => (maphint.hidden = true));
-  slider.addEventListener("input", () => (maphint.hidden = true), { once: true });
   // 배경 지도 전환 + 색 진하기
   const viewButtons = [...root.querySelectorAll<HTMLButtonElement>(".basemap button")];
   const bmLight = root.querySelector<HTMLInputElement>("#bmlight")!;
@@ -312,7 +350,8 @@ export function renderMap(root: HTMLElement, data: Data, params: URLSearchParams
   const applyOpacity = () => {
     const v = +op.value / 100;
     opLabel.textContent = v === 0 ? "0% (색 끔 · 지도만 보기)" : `${op.value}%`;
-    if (map.getLayer("fill")) map.setPaintProperty("fill", "fill-opacity", v);
+    if (map.getLayer("heat")) map.setPaintProperty("heat", "raster-opacity", v);
+    if (map.getLayer("dfill")) map.setPaintProperty("dfill", "fill-opacity", ["case", ["boolean", ["feature-state", "has"], false], v, 0]);
     root.querySelector<HTMLElement>(".legend")!.classList.toggle("dim", v === 0);
   };
   const setBasemap = (mode: Basemap) => {
@@ -320,9 +359,9 @@ export function renderMap(root: HTMLElement, data: Data, params: URLSearchParams
     if (!map.getLayer("vw-dark")) return;
     for (const m of ["dark", "light", "sat"] as Basemap[]) map.setLayoutProperty(`vw-${m}`, "visibility", m === mode ? "visible" : "none");
     // 밝은 지도·항공사진 위에서는 동 경계를 눈에 띄게, 색은 조금 옅게 해서 바탕이 보이게
-    map.setPaintProperty("line", "line-color", mode === "dark" ? "#8a93a6" : mode === "light" ? "#3a4763" : "#ffffff");
-    if (map.getLayer("cline")) map.setPaintProperty("cline", "line-color", mode === "light" ? "#ffffff" : "#0b111c");
-    op.value = mode === "sat" ? "75" : mode === "light" ? "75" : "90";
+    lineBase = mode === "dark" ? "#8a93a6" : mode === "light" ? "#5b667d" : "#ffffff";
+    styleLines();
+    op.value = mode === "dark" ? "80" : "72";
     applyOpacity();
   };
   // 보기 방식 3가지: 배경지도 / 실사 2D(항공사진) / 실사 3D(브이월드 3D 화면)
@@ -428,9 +467,14 @@ export function renderMap(root: HTMLElement, data: Data, params: URLSearchParams
   const qres = root.querySelector<HTMLUListElement>("#qres")!;
   const findDong = (v: string) =>
     Object.values(data.dongs).find((x) => `${x.gu} ${x.name}` === v) ?? Object.values(data.dongs).find((x) => x.name === v);
+  const goDong = (code: string) => {
+    clearPlace(); pick = null; pin?.remove(); pin = null;
+    selectDong(code, true);
+    if (view === "heat") renderPanel(`<b>${escHtml(dongName(code))}</b>(굵은 선)로 옮겼습니다.`);
+  };
   qInput.addEventListener("change", () => {
     const d = findDong(qInput.value.trim());
-    if (d) { clearPlace(); qres.innerHTML = ""; qmsg.textContent = ""; showDong(d.code); }
+    if (d) { qres.innerHTML = ""; qmsg.textContent = ""; goDong(d.code); }
   });
   root.querySelector<HTMLFormElement>("#qform")!.addEventListener("submit", async (e) => {
     e.preventDefault();
@@ -438,7 +482,7 @@ export function renderMap(root: HTMLElement, data: Data, params: URLSearchParams
     qres.innerHTML = "";
     if (!v) return;
     const d = findDong(v);
-    if (d) { clearPlace(); qmsg.textContent = ""; showDong(d.code); return; }
+    if (d) { qmsg.textContent = ""; goDong(d.code); return; }
     qmsg.textContent = "찾는 중…";
     try {
       const { places, used } = await searchPlaces(v, data);
@@ -457,33 +501,14 @@ export function renderMap(root: HTMLElement, data: Data, params: URLSearchParams
   const clearPlace = () => { lastPlace = null; marker?.remove(); marker = null; };
   const showPlace = (p: Place, fly = true) => {
     lastPlace = p;
-    if (!NOISE_ON) {
-      marker?.remove();
-      marker = new maplibregl.Marker({ color: "#f5b041" }).setLngLat([p.lon, p.lat]).addTo(map);
-      if (fly && view3D()) { map.jumpTo({ center: [p.lon, p.lat], zoom: 15 }); sync3D(true); }
-      else if (fly) map.flyTo({ center: [p.lon, p.lat], zoom: 14.5, duration: 700 });
-      intro(`<b>${escHtml(p.name)}</b>(으)로 옮겼습니다.`);
-      return;
-    }
-    if (!file) return;                       // 칸 자료가 오면 addCells()가 다시 부른다
+    if (!heat) return;                       // 자료가 오면 다시 부른다
     marker?.remove();
     marker = new maplibregl.Marker({ color: "#f5b041" }).setLngLat([p.lon, p.lat]).addTo(map);
-    dongSel = null;
-    if (map.getLayer("dsel")) map.setFilter("dsel", ["==", ["get", "code"], ""]);
-    const id = cellIdAt(p.lon, p.lat, file.hex_m);
-    if (fly && view3D()) { map.jumpTo({ center: [p.lon, p.lat], zoom: 15 }); }
+    if (fly && view3D()) { map.jumpTo({ center: [p.lon, p.lat], zoom: 15 }); sync3D(true); }
     else if (fly) map.flyTo({ center: [p.lon, p.lat], zoom: 14.5, duration: 700 });
-    if (byId.has(id)) {
-      select(id);
-      panel.querySelector(".pc-kicker")!.insertAdjacentHTML("beforebegin", `<p class="plain"><b>${escHtml(p.name)}</b>이(가) 들어 있는 칸입니다. 이 건물을 직접 잰 값은 아닙니다.</p>`);
-    } else {
-      selected = null;
-      if (map.getLayer("sel")) map.setFilter("sel", ["==", ["get", "id"], ""]);
-      const near = file.cells.map((c) => dist(p.lon, p.lat, c.lon, c.lat)).sort((a, b) => a - b)[0];
-      intro(`<b>${escHtml(p.name)}</b> 자리에는 센서가 없어 잰 값이 없습니다.${near != null ? ` 가장 가까운 색칠된 칸은 약 ${Math.round(near / 50) * 50}m 떨어져 있습니다.` : ""} 가까운 칸의 값이 이 자리와 같다고 볼 수는 없습니다.`);
-      if (view3D()) sync3D(true);
-    }
-    history.replaceState(null, "", `#/map?h=${hour}&p=${p.lat.toFixed(5)},${p.lon.toFixed(5)}&n=${encodeURIComponent(p.name)}`);
+    if (view === "dong") { dongSel = dongAt(data, p.lon, p.lat); paint(); }
+    else { dongSel = null; pick = { lon: p.lon, lat: p.lat }; pin?.remove(); pin = null; paint(); }
+    panel.querySelector(".pc-kicker")?.insertAdjacentHTML("beforebegin", `<p class="plain"><b>${escHtml(p.name)}</b> ${view === "dong" ? "이(가) 있는 동네입니다." : "자리의 소음입니다. 이 건물을 직접 잰 값은 아닙니다."}</p>`);
   };
 
   // 공유한 주소로 들어오면 장소 다시 표시

@@ -9,7 +9,14 @@ SDOT_RAW = SEOUL / "원본"                   # 연도 zip, 주간 CSV, 설치 �
 LOCATIONS = SEOUL / "센서위치_사본"          # 설치 위치정보 사본 (자동 갱신용, 커밋함)
 HOURLY = SEOUL / "매일수집"                 # API로 매일 받은 시간별 소음·조도 (일 단위 parquet, 커밋함)
 YEARS_DERIVED = SEOUL / "연도별정리"         # 연도 zip을 풀어 정리한 시간 자료 (커밋 안 함)
-VWORLD = DATA / "브이월드"                  # 국토교통부 브이월드: 도로중심선, 철도시설, 건물 (커밋 안 함)
+VWORLD = DATA / "브이월드"
+VWORLD_DL = DATA / "브이월드_다운로드"          # 브이월드 '공간정보 다운로드'에서 받은 파일 (라이선스 표시가 있어 상업적으로 쓸 수 있음)
+
+
+def roads_file():
+    """도로 중심선: 다운로드 파일로 만든 것이 있으면 그것을 쓴다 (없으면 예전에 API로 받은 조사용 자료)."""
+    f = VWORLD_DL / "roads.parquet"
+    return f if f.exists() else VWORLD / "roads.parquet"                  # 국토교통부 브이월드: 도로중심선, 철도시설, 건물 (커밋 안 함)
 SBIZ = DATA / "공공데이터포털" / "상가정보"    # 소상공인시장진흥공단 상가정보 (커밋 안 함)
 KAPT = DATA / "공공데이터포털" / "공동주택"    # 국토교통부 공동주택 기본정보 (커밋 안 함)
 BOUNDARY_DIR = DATA / "공개저장소_행정동경계"  # vuski/admdongkor (커밋 안 함)

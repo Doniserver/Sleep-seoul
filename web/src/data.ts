@@ -1,3 +1,4 @@
+import type * as GeoJSON from "geojson";
 export interface MonthStat { l_night: number | null; nights: number; score: number | null }
 
 export interface Dong {

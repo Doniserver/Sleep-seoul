@@ -1,5 +1,4 @@
 import "./style.css";
-import { renderCompare } from "./compare";
 import { type Data, loadCore } from "./data";
 import { renderMap } from "./mapview";
 import { renderMethod } from "./method";
@@ -10,9 +9,11 @@ let cleanup: (() => void) | void;
 
 function footerHtml(d: Data) {
   const m = d.meta;
-  return `<p><b>출처</b> · ${m.sources.map((s) => `<a href="${s.url}" target="_blank" rel="noopener">${s.name}</a> (${s.by})`).join(" · ")} · 배경지도·항공사진·실사 3D·장소 검색 © <a href="https://www.vworld.kr" target="_blank" rel="noopener">브이월드</a>(국토교통부)</p>
-  <p><b>데이터 기간</b> <span id="foot-period">가장 최근에 끝난 한 해</span> · <b>생성</b> ${m.generated_at.replace("T", " ")} KST ·
-  소음은 길가 센서로 잰 집 밖 환경이며 간이측정기 기반 비교용 지표입니다. 센서가 있는 500m 칸만 색을 칠했습니다.</p>`;
+  return `<p><b>출처</b> · ${m.sources.map((s) => `<a href="${s.url}" target="_blank" rel="noopener">${s.name}</a> (${s.by})`).join(" · ")} ·
+  <a href="https://www.data.go.kr/data/15146878/fileData.do" target="_blank" rel="noopener">국토지리정보원 연속수치지형도 도로중심선</a> (브이월드 공간정보 다운로드, 공공누리 1유형) ·
+  소상공인시장진흥공단 상가(상권)정보 (공공데이터포털) · 배경지도·항공사진·실사 3D·장소 찾기 © <a href="https://www.vworld.kr" target="_blank" rel="noopener">브이월드</a>(국토교통부)</p>
+  <p><b>자료 기간</b> <span id="foot-period">가장 최근에 끝난 한 해</span> ·
+  집 밖 소음을 길가 센서(간이측정기)의 측정값과 주변 도로·가게로 추정한 값입니다. 집 안 소음과는 다르며, 참고용입니다. <a href="#/method">방법과 한계</a></p>`;
 }
 
 async function route() {
@@ -31,10 +32,7 @@ async function route() {
   }
   footer.innerHTML = footerHtml(data);
   document.body.dataset.route = path;
-  if (path === "compare") {
-    renderCompare(main, data, params);
-    document.title = "두 동네 비교 · 잠 잘 오는 동네";
-  } else if (path === "method") {
+  if (path === "method") {
     renderMethod(main, data);
     document.title = "방법과 한계 · 잠 잘 오는 동네";
   } else {

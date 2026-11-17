@@ -60,3 +60,11 @@ def test_combine_is_the_median_and_ignores_missing():
     assert CE.combine([50.0, None, float("nan"), 54.0]) == 52.0
     assert CE.combine([None, float("nan")]) is None
     assert CE.combine([]) is None
+
+
+def test_smaller_cells_use_the_given_width():
+    x0, y0 = CE.hex_center(0, 0, 250)
+    x1, y1 = CE.hex_center(1, 0, 250)
+    assert math.hypot(x1 - x0, y1 - y0) == pytest.approx(250)
+    assert CE.hex_of(x1 + 100, y1, 250) == (1, 0)
+    assert CE.hex_of(*CE.hex_center(3, -2, 250), 250) == (3, -2)

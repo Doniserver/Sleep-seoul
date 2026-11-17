@@ -278,7 +278,7 @@ MODEL_KW = dict(nq=24, monotone=True)
 
 
 def base_rasters(g: Grid) -> dict[str, np.ndarray]:
-    roads = pd.read_parquet(C.VWORLD / "roads.parquet")
+    roads = pd.read_parquet(C.roads_file())
     lines, lanes = [], []
     for ln, js in zip(roads["lanes"], roads["lines"]):
         for line in json.loads(js):
