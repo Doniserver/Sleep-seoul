@@ -605,3 +605,7 @@ input::placeholder { color: #8a94a6; }
   .mapgrid.svc .panel.sheet { overflow-y: auto; border-top: 0; }
   .mapgrid.svc .maplegend .legend ul.chips { grid-template-columns: repeat(3, auto); }
 }
+
+/* 메뉴가 없어져 머리말이 한 줄이 됐다: 지도가 그만큼 커진다 */
+.mapgrid.svc { height: calc(100vh - 76px); }
+@media (max-width: 900px) { .mapgrid.svc { height: calc(100dvh - 78px); } }

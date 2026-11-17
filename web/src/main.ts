@@ -1,7 +1,6 @@
 import "./style.css";
 import { type Data, loadCore } from "./data";
 import { renderMap } from "./mapview";
-import { renderMethod } from "./method";
 
 const main = document.getElementById("main")!;
 const footer = document.getElementById("footer")!;
@@ -13,15 +12,14 @@ function footerHtml(d: Data) {
   <a href="https://www.data.go.kr/data/15146878/fileData.do" target="_blank" rel="noopener">국토지리정보원 연속수치지형도 도로중심선</a> (브이월드 공간정보 다운로드, 공공누리 1유형) ·
   소상공인시장진흥공단 상가(상권)정보 (공공데이터포털) · 배경지도·항공사진·실사 3D·장소 찾기 © <a href="https://www.vworld.kr" target="_blank" rel="noopener">브이월드</a>(국토교통부)</p>
   <p><b>자료 기간</b> <span id="foot-period">가장 최근에 끝난 한 해</span> ·
-  집 밖 소음을 길가 센서(간이측정기)의 측정값과 주변 도로·가게로 추정한 값입니다. 집 안 소음과는 다르며, 참고용입니다. <a href="#/method">방법과 한계</a></p>`;
+  집 밖 소음을 길가 센서(간이측정기)의 측정값과 주변 도로·가게로 추정한 값입니다. 집 안 소음과는 다르며, 참고용입니다.</p>`;
 }
 
 async function route() {
   if (cleanup) cleanup();
   cleanup = undefined;
-  const [path, qs] = (location.hash.replace(/^#\/?/, "") || "map").split("?");
+  const qs = (location.hash.replace(/^#\/?/, "") || "map").split("?")[1];
   const params = new URLSearchParams(qs ?? "");
-  document.querySelectorAll<HTMLAnchorElement>("nav a").forEach((a) => a.toggleAttribute("aria-current", a.dataset.route === path));
   main.innerHTML = `<p class="loading">불러오는 중…</p>`;
   let data: Data;
   try {
@@ -31,14 +29,9 @@ async function route() {
     return;
   }
   footer.innerHTML = footerHtml(data);
-  document.body.dataset.route = path;
-  if (path === "method") {
-    renderMethod(main, data);
-    document.title = "방법과 한계 · 잠 잘 오는 동네";
-  } else {
-    document.title = "잠 잘 오는 동네";
-    cleanup = renderMap(main, data, params);
-  }
+  document.body.dataset.route = "map";
+  document.title = "잠 잘 오는 동네";
+  cleanup = renderMap(main, data, params);       // 화면은 지도 하나뿐이다 (다른 주소로 들어와도 지도를 보여 준다)
 }
 
 window.addEventListener("hashchange", route);
